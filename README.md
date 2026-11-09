@@ -68,8 +68,12 @@ outsourced and in-house projects.
   remembers the task each text was last sent in, and translations are read only from that task.
 
 Next:
-1. installation guide for customers
-2. make append mode the default once the production API supports it
+1. make append mode the default once the production API supports it
+2. confirm how customers get access to the TextUnited registry (docs/INSTALL.md, step 2)
+
+## Installation
+
+Step-by-step guide for customers: [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Usage
 
