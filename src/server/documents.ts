@@ -1,0 +1,234 @@
+import type {DocumentTypeConfig} from '../core/config'
+import {cloneValue, isPlainObject, type PlainObject} from '../core/document/paths'
+import {slugify} from '../core/document/slug'
+import type {TranslationTargets} from '../core/document/target'
+import {getBaseDocumentId} from '../core/ids'
+import {emptyState, type TranslationState} from '../core/plan'
+import {getPreferredDocument, type Mutation, type SanityStore} from './sanityStore'
+
+/** Types of the documents this package keeps in Sanity. Their ids contain a dot, so they are private. */
+export const REQUEST_TYPE = 'textunited.translationRequest'
+export const STATE_TYPE = 'textunited.translationState'
+
+export function stateDocumentId(baseDocumentId: string): string {
+  return `textunited.state.${baseDocumentId}`
+}
+
+const SYSTEM_FIELDS = ['_id', '_rev', '_createdAt', '_updatedAt']
+
+function withoutSystemFields(document: PlainObject): PlainObject {
+  const copy = cloneValue(document)
+  for (const field of SYSTEM_FIELDS) delete copy[field]
+  return copy
+}
+
+export type StoredState = {
+  state: TranslationState
+  projectCustomId?: string
+  projectLanguages?: string[]
+  /** `outsourced` (TextUnited assigns the team) or `inHouse` (the company's own team) */
+  projectType?: 'outsourced' | 'inHouse'
+  /** Revision of the state document when it was read; absent when it does not exist yet */
+  revision?: string
+}
+
+export async function loadState(store: SanityStore, baseDocumentId: string): Promise<StoredState> {
+  const document = await store.getDocument(stateDocumentId(baseDocumentId))
+  if (!document) return {state: emptyState()}
+  const revision = typeof document._rev === 'string' ? document._rev : undefined
+  let state = emptyState()
+  try {
+    if (typeof document.stateJson === 'string') state = JSON.parse(document.stateJson) as TranslationState
+  } catch {
+    // A damaged state only means translations are treated as not written by the plugin.
+  }
+  return {
+    state,
+    revision,
+    projectCustomId: typeof document.projectCustomId === 'string' ? document.projectCustomId : undefined,
+    projectLanguages: Array.isArray(document.projectLanguages)
+      ? (document.projectLanguages as string[])
+      : undefined,
+    projectType:
+      document.projectType === 'inHouse' || document.projectType === 'outsourced'
+        ? document.projectType
+        : undefined,
+  }
+}
+
+/**
+ * Saves the state, but only if nobody saved it since it was read (TextUnited may send several
+ * notifications at once). A conflict surfaces as SanityConflictError; the caller re-reads and
+ * retries.
+ */
+export function saveStateMutation(
+  baseDocumentId: string,
+  stored: StoredState,
+  pending: boolean,
+): Mutation {
+  const fields = {
+    documentId: baseDocumentId,
+    projectCustomId: stored.projectCustomId,
+    projectLanguages: stored.projectLanguages,
+    projectType: stored.projectType,
+    stateJson: JSON.stringify(stored.state),
+    pending,
+    updatedAt: new Date().toISOString(),
+  }
+  const id = stateDocumentId(baseDocumentId)
+  if (stored.revision) return {patch: {id, ifRevisionID: stored.revision, set: fields}}
+  return {create: {_id: id, _type: STATE_TYPE, ...fields}}
+}
+
+/** Ids of the existing translations of a documentLevel document, per language. */
+async function translationDocumentIds(
+  store: SanityStore,
+  baseDocumentId: string,
+): Promise<{metadata: PlainObject | null; ids: Record<string, string>}> {
+  const metadata = await store.findTranslationMetadata(baseDocumentId)
+  const ids: Record<string, string> = {}
+  const translations = Array.isArray(metadata?.translations) ? metadata.translations : []
+  for (const entry of translations) {
+    if (!isPlainObject(entry) || typeof entry._key !== 'string') continue
+    const value = entry.value
+    if (isPlainObject(value) && typeof value._ref === 'string') ids[entry._key] = value._ref
+  }
+  return {metadata, ids}
+}
+
+export type LoadedTargets = {
+  targets: TranslationTargets
+  /** documentLevel: translation metadata, to be updated when new documents are created */
+  metadata: PlainObject | null
+}
+
+export async function loadTargets(args: {
+  store: SanityStore
+  source: PlainObject
+  typeConfig: DocumentTypeConfig
+  languages: string[]
+}): Promise<LoadedTargets> {
+  if (args.typeConfig.model === 'fieldLevel') {
+    return {targets: {model: 'fieldLevel', document: cloneValue(args.source)}, metadata: null}
+  }
+  const baseId = getBaseDocumentId(String(args.source._id))
+  const {metadata, ids} = await translationDocumentIds(args.store, baseId)
+  const documents: Record<string, PlainObject | undefined> = {}
+  for (const language of args.languages) {
+    const id = ids[language]
+    documents[language] = id ? ((await getPreferredDocument(args.store, id)) ?? undefined) : undefined
+  }
+  return {targets: {model: 'documentLevel', documents}, metadata}
+}
+
+/**
+ * Creates in-memory documentLevel translations for languages that have none yet: a copy of the
+ * source without the translated fields, with a new id and the target language. Returns the
+ * languages that got a new document.
+ */
+export function createMissingTranslationDocuments(args: {
+  targets: TranslationTargets
+  source: PlainObject
+  typeConfig: DocumentTypeConfig
+  languages: string[]
+  newId: () => string
+}): string[] {
+  if (args.targets.model !== 'documentLevel') return []
+  const created: string[] = []
+  const languageField = args.typeConfig.languageField ?? 'language'
+  for (const language of args.languages) {
+    if (args.targets.documents[language]) continue
+    const copy = withoutSystemFields(args.source)
+    for (const field of args.typeConfig.fields ?? []) delete copy[field]
+    delete copy.slug
+    copy._id = `drafts.${args.newId()}`
+    copy[languageField] = language
+    args.targets.documents[language] = copy
+    created.push(language)
+  }
+  return created
+}
+
+function translationReference(language: string, documentId: string, type: string): PlainObject {
+  return {
+    _key: language,
+    _type: 'internationalizedArrayReferenceValue',
+    value: {
+      _type: 'reference',
+      _ref: getBaseDocumentId(documentId),
+      _weak: true,
+      _strengthenOnPublish: {type},
+    },
+  }
+}
+
+/** Mutations that save the changed translations as drafts. */
+export function writeTargetsMutations(args: {
+  loaded: LoadedTargets
+  targets: TranslationTargets
+  source: PlainObject
+  typeConfig: DocumentTypeConfig
+  sourceLanguage: string
+  changedFields: Map<string, Set<string>>
+  createdLanguages: string[]
+  newId: () => string
+}): Mutation[] {
+  const mutations: Mutation[] = []
+
+  const saveDraft = (document: PlainObject, fields: Set<string>, isNew: boolean) => {
+    const id = String(document._id)
+    const draftId = id.startsWith('drafts.') ? id : `drafts.${id}`
+    if (isNew || !id.startsWith('drafts.')) {
+      // No draft yet: the draft starts as the full current document.
+      mutations.push({createOrReplace: {...withoutSystemFields(document), _id: draftId}})
+      return
+    }
+    const set: PlainObject = {}
+    for (const field of fields) set[field] = document[field]
+    mutations.push({patch: {id: draftId, set}})
+  }
+
+  if (args.targets.model === 'fieldLevel') {
+    const fields = args.changedFields.get('')
+    if (fields?.size) saveDraft(args.targets.document, fields, false)
+    return mutations
+  }
+
+  for (const [language, fields] of args.changedFields) {
+    const document = args.targets.documents[language]
+    if (!document) continue
+    const isNew = args.createdLanguages.includes(language)
+    if (isNew) {
+      const titleField = (args.typeConfig.fields ?? ['title']).find((field) => typeof document[field] === 'string')
+      const title = titleField ? String(document[titleField]) : ''
+      if (title) document.slug = {_type: 'slug', current: slugify(title)}
+    }
+    saveDraft(document, fields, isNew)
+  }
+
+  const createdIds = args.createdLanguages
+    .filter((language) => args.changedFields.has(language))
+    .map((language) => [language, String(args.targets.model === 'documentLevel' ? args.targets.documents[language]?._id : '')] as const)
+  if (createdIds.length === 0) return mutations
+
+  const type = String(args.source._type)
+  const sourceRef = translationReference(args.sourceLanguage, String(args.source._id), type)
+  const newRefs = createdIds.map(([language, id]) => translationReference(language, id, type))
+  const existing = args.loaded.metadata
+  if (!existing) {
+    mutations.push({
+      create: {
+        _id: `translation.metadata.${args.newId()}`,
+        _type: 'translation.metadata',
+        schemaTypes: [type],
+        translations: [sourceRef, ...newRefs],
+      },
+    })
+  } else {
+    const current = Array.isArray(existing.translations) ? existing.translations : []
+    const keys = new Set(current.map((entry) => (isPlainObject(entry) ? entry._key : undefined)))
+    const additions = [sourceRef, ...newRefs].filter((ref) => !keys.has(ref._key))
+    mutations.push({patch: {id: String(existing._id), set: {translations: [...current, ...additions]}}})
+  }
+  return mutations
+}

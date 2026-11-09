@@ -48,3 +48,14 @@ Thumbs.db
 *.mov
 *.wmv
 
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Local secrets (never commit tokens)
+.env
+.env.*
+!.env.example
+
+# Packed tarballs (npm pack / bun pm pack)
+*.tgz

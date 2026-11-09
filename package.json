@@ -1,0 +1,90 @@
+{
+  "name": "@textunited/sanity-plugin",
+  "version": "0.0.0",
+  "description": "Translate Sanity content with TextUnited: Studio plugin and server handler in one package",
+  "private": true,
+  "license": "UNLICENSED",
+  "author": {
+    "name": "TextUnited",
+    "email": "dev@textunited.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TextUnited/textunited-sanity-plugin.git"
+  },
+  "homepage": "https://github.com/TextUnited/textunited-sanity-plugin",
+  "keywords": [
+    "sanity",
+    "sanity-plugin",
+    "textunited",
+    "translation",
+    "localization"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.textunited.com/"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./studio": {
+      "types": "./dist/studio/index.d.ts",
+      "import": "./dist/studio/index.js",
+      "require": "./dist/studio/index.cjs"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js",
+      "require": "./dist/server/index.cjs"
+    },
+    "./next": {
+      "types": "./dist/next/index.d.ts",
+      "import": "./dist/next/index.js",
+      "require": "./dist/next/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "peerDependencies": {
+    "@sanity/icons": "^2 || ^3",
+    "@sanity/ui": "^2 || ^3",
+    "react": "^18 || ^19",
+    "sanity": "^3.40.0 || ^4 || ^5"
+  },
+  "peerDependenciesMeta": {
+    "@sanity/icons": {
+      "optional": true
+    },
+    "@sanity/ui": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "sanity": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@sanity/icons": "^3.8.0",
+    "@sanity/ui": "^3.5.5",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "react": "^19.1.0",
+    "sanity": "^5.31.2",
+    "tsup": "^8.5.0",
+    "typescript": "5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
