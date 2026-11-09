@@ -69,14 +69,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ## Step 2. Install the package
 
-The package is published to the TextUnited registry. In the folder of the Studio and in the
-folder of the website (often the same repository), add an `.npmrc` file:
-
-```ini
-@textunited:registry=https://npm.textunited.com/
-```
-
-Then install it in both places:
+The package is published on npm as
+[`@textunited/sanity-plugin`](https://www.npmjs.com/package/@textunited/sanity-plugin). Install
+it in the folder of the Studio and in the folder of the website (often the same repository):
 
 ```bash
 npm install @textunited/sanity-plugin

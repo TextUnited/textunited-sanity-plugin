@@ -13,8 +13,9 @@ entry never contains server code.
 
 ## Status
 
-Work in progress, not published. Internal TextUnited package (`UNLICENSED`, `private`); it will be
-published to the TextUnited registry (`https://npm.textunited.com/`), not to the public npm.
+Work in progress, not published yet. It will be published on the public npm as
+`@textunited/sanity-plugin` (like `@textunited/n8n-nodes-textunited`). Until the release is
+approved, `"private": true` in `package.json` blocks publishing; remove it for the first release.
 
 Done:
 - package layout, build (ESM + CJS + types), tests
@@ -69,11 +70,11 @@ outsourced and in-house projects.
 
 Next:
 1. make append mode the default once the production API supports it
-2. confirm how customers get access to the TextUnited registry (docs/INSTALL.md, step 2)
+2. first release on the public npm: remove `"private": true`, set the version, `npm publish`
 
 ## Installation
 
-Step-by-step guide for customers: [docs/INSTALL.md](docs/INSTALL.md).
+Step-by-step guide for customers: [docs/INSTALL.md](https://github.com/TextUnited/textunited-sanity-plugin/blob/main/docs/INSTALL.md).
 
 ## Usage
 

@@ -21,7 +21,7 @@
     "localization"
   ],
   "publishConfig": {
-    "registry": "https://npm.textunited.com/"
+    "access": "public"
   },
   "engines": {
     "node": ">=20"
