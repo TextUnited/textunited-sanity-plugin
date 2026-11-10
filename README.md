@@ -177,3 +177,7 @@ npm test
 npm run typecheck
 npm run build
 ```
+
+## License
+
+MIT, see [LICENSE.md](https://github.com/TextUnited/textunited-sanity-plugin/blob/main/LICENSE.md).

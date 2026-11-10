@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "description": "Translate Sanity content with TextUnited: Studio plugin and server handler in one package",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "author": {
     "name": "TextUnited",
     "email": "dev@textunited.com"
