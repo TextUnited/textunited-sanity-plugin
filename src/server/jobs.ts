@@ -4,6 +4,7 @@ import {extractTranslationUnits, type TranslationUnit} from '../core/document/ex
 import {getIntlItem} from '../core/document/intl'
 import type {PlainObject} from '../core/document/paths'
 import {createProjectCustomId, getBaseDocumentId} from '../core/ids'
+import {canonicalLanguageCode, findUnknownLanguageCodes, type TextUnitedLanguage} from '../core/languages'
 import {
   hasPendingTranslations,
   mergeState,
@@ -107,6 +108,8 @@ export type JobContext = {
   dataset: string
   projectSettings: ProjectSettings
   inHouseSettings: ProjectSettings
+  /** Languages TextUnited supports, to check the configured codes; null when unavailable */
+  knownLanguages?: () => Promise<TextUnitedLanguage[] | null>
   /** What the TextUnited API supports; see `TextUnitedCapabilities` */
   capabilities?: TextUnitedCapabilities
   /** Builds the notification URL TextUnited calls for one document; none in local development */
@@ -250,6 +253,8 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
     }
     return summary
   }
+
+  await assertKnownLanguageCodes(context, languages)
 
   const customId = createProjectCustomId({
     sanityProjectId: context.sanityProjectId,
@@ -399,15 +404,42 @@ function appendTaskId(date: Date, newId: () => string): string {
   return `update-${stamp}-${suffix}`
 }
 
+/**
+ * Refuses a request whose configured TextUnited codes TextUnited does not know, before anything
+ * is sent. Skipped when the language list cannot be loaded.
+ */
+async function assertKnownLanguageCodes(context: JobContext, languages: string[]): Promise<void> {
+  const known = await context.knownLanguages?.()
+  if (!known?.length) return
+  const {config} = context
+  const codes = [
+    {label: config.sourceLanguage.title, code: config.sourceLanguage.textUnitedCode},
+    ...config.targetLanguages
+      .filter((language) => languages.includes(language.id))
+      .map((language) => ({label: language.title, code: language.textUnitedCode})),
+  ]
+  const unknown = findUnknownLanguageCodes(codes, known)
+  if (unknown.length === 0) return
+  const details = unknown
+    .map(({label, code, suggestions}) =>
+      `"${code}" (${label})` + (suggestions.length ? ` – known codes: ${suggestions.join(', ')}` : ''),
+    )
+    .join('; ')
+  throw new Error(
+    `TextUnited does not know these language codes: ${details}. ` +
+      'Fix textUnitedCode in the translation configuration.',
+  )
+}
+
 function assertProjectLanguages(
   existing: ProjectResponse,
   languages: string[],
   codeOf: Map<string, string>,
 ): void {
   const inProject = new Set(
-    (existing.targetLanguages ?? []).map((target) => String(target.targetLanguageCode ?? '').toLowerCase()),
+    (existing.targetLanguages ?? []).map((target) => canonicalLanguageCode(target.targetLanguageCode)),
   )
-  const missing = languages.filter((language) => !inProject.has(String(codeOf.get(language)).toLowerCase()))
+  const missing = languages.filter((language) => !inProject.has(canonicalLanguageCode(codeOf.get(language))))
   if (missing.length > 0) {
     throw new Error(
       `The TextUnited project for this document has no ${missing.join(', ')} translation. ` +

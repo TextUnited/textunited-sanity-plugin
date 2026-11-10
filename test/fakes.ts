@@ -141,6 +141,18 @@ export function createFakeTextUnited(options: {hangOnPutTask?: string} = {}) {
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined
     calls.push({method, path: url.pathname, body})
 
+    if (method === 'GET' && url.pathname === '/integrations/languages') {
+      return Response.json(
+        [
+          ['EN-US', 'English (US)'],
+          ['DE-DE', 'German (Germany)'],
+          ['DE-AT', 'German (Austria)'],
+          ['FR-FR', 'French (France)'],
+          ['PL-PL', 'Polish'],
+          ['CN-CN', 'Chinese (Simplified)'],
+        ].map(([langCode, systemName], index) => ({id: index + 1, langCode, systemName})),
+      )
+    }
     if (method === 'GET' && url.pathname === '/accounts/Users') {
       return Response.json([
         {id: 7, login: 'anna@example.com', email: 'anna@example.com', firstName: 'Anna', lastName: 'Nowak', stateName: 'Normal'},
@@ -176,8 +188,10 @@ export function createFakeTextUnited(options: {hangOnPutTask?: string} = {}) {
 
     const segments = (body?.segments ?? []) as Array<{customId: string; content: string}>
     if (method === 'POST' && url.pathname === '/segments/projects') {
+      // Like the real API, a few common codes are stored as TextUnited's own (zh-cn → CN-CN).
+      const aliases: Record<string, string> = {'zh-cn': 'CN-CN', 'zh-tw': 'CT-CT', 'en-gb': 'EN-EN'}
       const languages = (body!.targetLanguages as Array<{targetLanguageCode: string}>).map(
-        (target) => target.targetLanguageCode,
+        (target) => aliases[target.targetLanguageCode.toLowerCase()] ?? target.targetLanguageCode,
       )
       const project: FakeProject = {id: 400000 + projects.size + 1, customId: String(body!.customId), languages, segments: new Map()}
       projects.set(project.customId, project)

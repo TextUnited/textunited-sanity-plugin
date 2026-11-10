@@ -1,4 +1,5 @@
 import type {TranslationConfig} from '../core/config'
+import type {TextUnitedLanguage} from '../core/languages'
 import {
   DEFAULT_CAPABILITIES,
   TextUnitedClient,
@@ -108,6 +109,15 @@ export function createTextUnitedRequestHandler(options: TextUnitedHandlerOptions
     timeoutMs: options.textUnited.timeoutMs,
   })
   const capabilities = options.textUnited.capabilities ?? DEFAULT_CAPABILITIES
+  // The language list changes rarely: load it once, and try again later if it failed.
+  let languagesPromise: Promise<TextUnitedLanguage[] | null> | null = null
+  const knownLanguages = () => {
+    languagesPromise ??= textUnited.listLanguages().catch(() => {
+      languagesPromise = null
+      return null
+    })
+    return languagesPromise
+  }
   const store =
     options.store ??
     new HttpSanityStore({
@@ -132,6 +142,7 @@ export function createTextUnitedRequestHandler(options: TextUnitedHandlerOptions
       ...options.textUnited.inHouse,
     },
     capabilities,
+    knownLanguages,
     eventUrl: async (baseDocumentId: string): Promise<string | undefined> => {
       // TextUnited rejects a non-HTTPS event URL, so none is sent in local development.
       if (isLocal) return undefined

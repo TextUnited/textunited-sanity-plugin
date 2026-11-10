@@ -142,9 +142,41 @@ export const translationConfig: TranslationConfig = {
 }
 ```
 
+### Language codes
+
+Each language has two codes, and both must be right:
+
+- **`id`** is the code your Sanity localization plugin uses, exactly as it is written there
+  (`de`, not `de-DE`, if the plugin uses `de`). Translations are saved under this code, so a
+  different spelling saves them where the Studio and the website do not look.
+- **`textUnitedCode`** is the TextUnited code of the language. The full list is at
+  [api.textunited.com/integrations/languages](https://api.textunited.com/integrations/languages)
+  (field `langCode`, e.g. `DE-DE`, `DE-AT`, `PL-PL`; upper or lower case both work).
+  TextUnited also accepts `zh-cn` (stored as `CN-CN`, Chinese Simplified), `zh-tw` (`CT-CT`,
+  Chinese Traditional) and `en-gb` (`EN-EN`).
+
+Keep the list of languages in **one file** that both the localization plugin and this
+configuration import, so they cannot drift apart:
+
+```ts
+// languages.ts
+export const languages = [
+  {id: 'en', title: 'English', textUnitedCode: 'en-us'},
+  {id: 'de', title: 'German', textUnitedCode: 'de-de'},
+  {id: 'pl', title: 'Polish', textUnitedCode: 'pl-pl'},
+]
+
+// sanity.config.ts:  internationalizedArray({languages: languages.map(({id, title}) => ({id, title}))})
+// translation.config.ts:  sourceLanguage: languages[0], targetLanguages: languages.slice(1)
+```
+
+The plugin checks both codes. The server refuses a request with a TextUnited code that TextUnited
+does not know, and names the known codes for that language, before anything is sent. The Studio
+panel says so when a document uses language ids that do not match the configuration.
+
 Notes:
 
-- Only the document types listed here get the Translate button.
+- Only the document types listed here get the TextUnited panel.
 - `fieldLevel` translates every internationalized field of the document, at any depth (page
   builder sections included). Plain `string` fields are not touched.
 - `documentLevel` creates the translated documents as drafts when they do not exist yet, with a
@@ -316,6 +348,8 @@ source text was edited or *Retranslate everything* was used.
 | *TextUnited request failed with status 401* | The TextUnited token expired, was revoked or lacks the `projects:read` / `projects:write` scopes. Create a new one and update `TEXTUNITED_TOKEN`. |
 | *TextUnited request failed with status 500* | An error on the TextUnited side. Check the project settings (for example a `styleGuideId` that does not exist in the account) and contact TextUnited support with the error signature from the message. |
 | *An in-house project needs at least one translator* | Tick **Translator** for at least one person. |
+| *TextUnited does not know these language codes: …* | A `textUnitedCode` in the configuration is wrong. Use one of the codes the message lists (see *Language codes* in step 3). |
+| *The fields of this document use the language ids …* | The `id` values in the configuration differ from the ones of the localization plugin (see *Language codes* in step 3). |
 | *The TextUnited project for this document has no de translation* | The language is not in the document's TextUnited project (see *Target languages*). |
 | Machine translations appear, reviewed ones never do | The website cannot be reached by TextUnited over HTTPS, or the periodic check is not scheduled (step 6). |
 | *Translations are requested from the English version* | For one-document-per-language types, open the source-language document. |

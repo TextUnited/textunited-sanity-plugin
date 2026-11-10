@@ -172,6 +172,62 @@ export function checkLocalizationSetup(
   return null
 }
 
+/** Language ids found in the localized fields of a document (`internationalizedArray…Value` keys). */
+function fieldLanguageIds(value: unknown, found = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const record = item as Record<string, unknown> | null
+      if (
+        record &&
+        typeof record._key === 'string' &&
+        typeof record._type === 'string' &&
+        /^internationalizedArray.*Value$/.test(record._type)
+      ) {
+        found.add(record._key)
+      }
+      fieldLanguageIds(item, found)
+    }
+  } else if (value && typeof value === 'object') {
+    for (const child of Object.values(value)) fieldLanguageIds(child, found)
+  }
+  return found
+}
+
+/**
+ * Checks that the language ids of the configuration match the ones the Sanity localization plugin
+ * uses in this document (e.g. `en` and not `en-US`). Returns a message, or null when they match
+ * or the document gives no clue.
+ */
+export function checkLanguageIds(
+  config: TranslationConfig,
+  documentType: string,
+  document: Record<string, unknown> | null | undefined,
+): string | null {
+  const typeConfig = config.documentTypes.find((entry) => entry.type === documentType)
+  if (!typeConfig || !document) return null
+  const configured = [config.sourceLanguage, ...config.targetLanguages].map((language) => language.id)
+
+  if (typeConfig.model === 'fieldLevel') {
+    const ids = fieldLanguageIds(document)
+    if (ids.size === 0 || ids.has(config.sourceLanguage.id)) return null
+    return (
+      `The fields of this document use the language ids ${[...ids].map((id) => `“${id}”`).join(', ')}, ` +
+      `but the translation configuration expects “${config.sourceLanguage.id}” for ` +
+      `${config.sourceLanguage.title}. Use the same ids as the Internationalized Array plugin.`
+    )
+  }
+
+  const language = document[typeConfig.languageField ?? 'language']
+  if (typeof language === 'string' && language !== '' && !configured.includes(language)) {
+    return (
+      `This document's language is “${language}”, which is not in the translation configuration ` +
+      `(${configured.map((id) => `“${id}”`).join(', ')}). Use the same ids as the Document ` +
+      'Internationalization plugin.'
+    )
+  }
+  return null
+}
+
 /**
  * The action is offered on documents in the source language. For document-level translation,
  * translated copies carry another language and do not get the action.

@@ -7,6 +7,7 @@ import {getBaseDocumentId} from '../core/ids'
 import type {TranslationMode} from '../core/plan'
 import {
   canTranslateDocument,
+  checkLanguageIds,
   checkLocalizationSetup,
   describeRequest,
   INSTALL_GUIDE_URL,
@@ -190,8 +191,10 @@ export function TranslationPanel(props: {
   const check = canTranslateDocument(options.translation, documentType, data.source)
   const schema = useSchema()
   const setupError = useMemo(
-    () => checkLocalizationSetup(options.translation, documentType, schema.getTypeNames()),
-    [options.translation, documentType, schema],
+    () =>
+      checkLocalizationSetup(options.translation, documentType, schema.getTypeNames()) ??
+      checkLanguageIds(options.translation, documentType, data.source),
+    [options.translation, documentType, schema, data.source],
   )
 
   const send = async (mode: TranslationMode) => {

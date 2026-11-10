@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest'
 
 import {
   canTranslateDocument,
+  checkLanguageIds,
   checkLocalizationSetup,
   defaultLanguages,
   describeRequest,
@@ -103,6 +104,25 @@ describe('checkLocalizationSetup', () => {
     )
     expect(checkLocalizationSetup(config, 'post', ['post', 'internationalizedArrayString'])).toMatch(
       /Document Internationalization plugin/,
+    )
+  })
+})
+
+describe('checkLanguageIds', () => {
+  const field = (key: string, value: string) => ({_key: key, _type: 'internationalizedArrayStringValue', value})
+
+  it('accepts documents that use the configured ids', () => {
+    expect(checkLanguageIds(config, 'page', {_id: 'p', title: [field('en', 'Hi'), field('de', 'Hallo')]})).toBeNull()
+    expect(checkLanguageIds(config, 'page', {_id: 'p'})).toBeNull()
+    expect(checkLanguageIds(config, 'post', {_id: 'p', language: 'de'})).toBeNull()
+  })
+
+  it('explains ids that do not match the localization plugin', () => {
+    expect(checkLanguageIds(config, 'page', {_id: 'p', title: [field('en-US', 'Hi')]})).toMatch(
+      /use the language ids “en-US”, but the translation configuration expects “en”/,
+    )
+    expect(checkLanguageIds(config, 'post', {_id: 'p', language: 'en-US'})).toMatch(
+      /language is “en-US”, which is not in the translation configuration/,
     )
   })
 })

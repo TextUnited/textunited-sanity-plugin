@@ -1,5 +1,6 @@
 import type {TranslationConfig} from '../core/config'
 import type {TranslationsBySegment} from '../core/document/apply'
+import {canonicalLanguageCode} from '../core/languages'
 
 type Entry = {
   source?: {customId?: string; taskId?: string | null}
@@ -20,7 +21,7 @@ export function toTranslationsBySegment(
   taskOf?: ReadonlyMap<string, string>,
 ): TranslationsBySegment {
   const languageByCode = new Map(
-    config.targetLanguages.map((language) => [language.textUnitedCode.toLowerCase(), language.id]),
+    config.targetLanguages.map((language) => [canonicalLanguageCode(language.textUnitedCode), language.id]),
   )
   const result: TranslationsBySegment = new Map()
   for (const entry of entries) {
@@ -30,7 +31,7 @@ export function toTranslationsBySegment(
     if (wantedTask !== undefined && (entry.source?.taskId ?? '') !== wantedTask) continue
     const perLanguage = result.get(customId) ?? new Map()
     for (const translation of entry.translations ?? []) {
-      const language = languageByCode.get(String(translation.languageCode ?? '').toLowerCase())
+      const language = languageByCode.get(canonicalLanguageCode(translation.languageCode))
       if (!language || typeof translation.content !== 'string') continue
       perLanguage.set(language, {content: translation.content, status: translation.status})
     }

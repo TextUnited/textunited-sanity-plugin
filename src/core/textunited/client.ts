@@ -1,3 +1,4 @@
+import type {TextUnitedLanguage} from '../languages'
 import type {
   CreateProjectRequest,
   ProjectResponse,
@@ -209,6 +210,11 @@ export class TextUnitedClient {
       eventUrl: args.eventUrl,
     })
     return result ?? {customId: args.customId, taskId: args.taskId}
+  }
+
+  /** Languages TextUnited supports (`GET /integrations/languages`, no token needed). */
+  async listLanguages(): Promise<TextUnitedLanguage[]> {
+    return (await this.request<TextUnitedLanguage[]>('GET', '/integrations/languages')) ?? []
   }
 
   /** Source segments with their translations in every target language. */
