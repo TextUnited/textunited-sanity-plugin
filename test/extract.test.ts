@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest'
 
 import {getDocumentTypeConfig} from '../src/core/config'
 import {extractTranslationUnits} from '../src/core/document/extract'
+import {emptyState, planTranslation} from '../src/core/plan'
 import {config, makePage, makePost} from './fixtures'
 
 const pageConfig = getDocumentTypeConfig(config, 'page')!
@@ -75,5 +76,24 @@ describe('long text', () => {
     expect(unit.segments.length).toBeGreaterThan(1)
     expect(new Set(unit.segments.map((s) => s.customId)).size).toBe(unit.segments.length)
     expect(unit.segments.every((s) => s.content.length <= 2000)).toBe(true)
+  })
+})
+
+describe('languages added in the Studio but not filled in', () => {
+  it('still translates the field, and fills the empty language', () => {
+    const page = makePage() as any
+    // the editor added French with the field's language button and left it empty
+    page.title.push({_key: 'fr', _type: 'internationalizedArrayStringValue'})
+    const units = extractTranslationUnits(page, getDocumentTypeConfig(config, 'page')!, config)
+    const title = units.find((unit) => unit.id === 'title')
+    expect(title?.source).toBe('Enterprise language layer')
+    const plan = planTranslation({
+      units,
+      languages: ['fr'],
+      targets: {model: 'fieldLevel', document: page},
+      state: emptyState(),
+      mode: 'missing',
+    })
+    expect(plan.selected.map(({unit}) => unit.id)).toContain('title')
   })
 })

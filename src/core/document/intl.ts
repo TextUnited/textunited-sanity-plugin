@@ -6,6 +6,10 @@ import {isPlainObject, type PlainObject} from './paths'
  */
 export type IntlArrayItem = PlainObject & {_key: string; value?: unknown}
 
+/**
+ * A language added in the Studio and not filled in yet has no `value` at all, only its key and
+ * type; it still belongs to the field, so the type is enough to recognise an item.
+ */
 export function isIntlArray(value: unknown): value is IntlArrayItem[] {
   return (
     Array.isArray(value) &&
@@ -14,8 +18,7 @@ export function isIntlArray(value: unknown): value is IntlArrayItem[] {
       (item) =>
         isPlainObject(item) &&
         typeof item._key === 'string' &&
-        'value' in item &&
-        (typeof item._type !== 'string' || item._type.startsWith('internationalizedArray')),
+        (typeof item._type === 'string' ? item._type.startsWith('internationalizedArray') : 'value' in item),
     )
   )
 }

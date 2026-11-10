@@ -190,14 +190,21 @@ export function writeTargetsMutations(args: {
     return mutations
   }
 
-  for (const [language, fields] of args.changedFields) {
+  for (const [language, changed] of args.changedFields) {
+    let fields = changed
     const document = args.targets.documents[language]
     if (!document) continue
     const isNew = args.createdLanguages.includes(language)
-    if (isNew) {
+    // A new translation, or one created empty in the Studio (e.g. from the Translations menu),
+    // gets a slug from its translated title.
+    const slug = document.slug as {current?: unknown} | null | undefined
+    if (isNew || !slug || typeof slug.current !== 'string' || slug.current === '') {
       const titleField = (args.typeConfig.fields ?? ['title']).find((field) => typeof document[field] === 'string')
       const title = titleField ? String(document[titleField]) : ''
-      if (title) document.slug = {_type: 'slug', current: slugify(title)}
+      if (title) {
+        document.slug = {_type: 'slug', current: slugify(title)}
+        fields = new Set([...fields, 'slug'])
+      }
     }
     saveDraft(document, fields, isNew)
   }
@@ -221,10 +228,15 @@ export function writeTargetsMutations(args: {
       },
     })
   } else {
-    const current = Array.isArray(existing.translations) ? existing.translations : []
-    const keys = new Set(current.map((entry) => (isPlainObject(entry) ? entry._key : undefined)))
+    // A language whose translation was deleted still has its entry, pointing to the deleted
+    // document; the new document takes its place.
+    const replaced = new Set(newRefs.map((ref) => ref._key))
+    const kept = (Array.isArray(existing.translations) ? existing.translations : []).filter(
+      (entry) => !(isPlainObject(entry) && replaced.has(String(entry._key))),
+    )
+    const keys = new Set(kept.map((entry) => (isPlainObject(entry) ? entry._key : undefined)))
     const additions = [sourceRef, ...newRefs].filter((ref) => !keys.has(ref._key))
-    mutations.push({patch: {id: String(existing._id), set: {translations: [...current, ...additions]}}})
+    mutations.push({patch: {id: String(existing._id), set: {translations: [...kept, ...additions]}}})
   }
   return mutations
 }
