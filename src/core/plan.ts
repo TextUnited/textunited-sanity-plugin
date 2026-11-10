@@ -1,5 +1,5 @@
 import type {TranslationUnit} from './document/extract'
-import {isMissingValue, readTargetValue, type TranslationTargets} from './document/target'
+import {needsTranslation, readTargetValue, type TranslationTargets} from './document/target'
 import type {ProjectSegment} from './textunited/types'
 
 /**
@@ -97,13 +97,17 @@ function selectionReason(
   projectCustomId?: string,
 ): UnitSelectionReason | null {
   if (mode === 'all') return 'all'
-  if (languages.some((language) => isMissingValue(unit, readTargetValue(unit, language, targets)))) {
+  const record = state.units[unit.id]
+  if (
+    languages.some((language) =>
+      needsTranslation(unit, readTargetValue(unit, language, targets), record?.languages[language]?.appliedHash),
+    )
+  ) {
     return 'missing'
   }
   // Without a record the unit was never sent by this plugin (e.g. translated by hand or by an
   // older mechanism), so there is nothing to compare: it is not treated as changed.
   // With a project, the text sent to that project counts; otherwise the last one sent anywhere.
-  const record = state.units[unit.id]
   const sentHash = (projectCustomId ? sentRecord(record, projectCustomId)?.sourceHash : undefined) ?? record?.sourceHash
   if (mode === 'changed' && sentHash !== undefined && sentHash !== unit.sourceHash) return 'sourceChanged'
   return null

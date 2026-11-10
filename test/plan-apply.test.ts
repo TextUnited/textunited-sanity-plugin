@@ -268,3 +268,31 @@ describe('migrateLegacyState', () => {
     expect(migrateLegacyState(legacy, undefined)).toBe(legacy)
   })
 })
+
+describe('translations that equal the source', () => {
+  it('count as translated when the plugin wrote them, as missing when copied', () => {
+    const page = makePage() as any
+    // TextUnited kept the title as it is in German (a name), and the plugin wrote it
+    page.title = [
+      {_key: 'en', _type: 'internationalizedArrayStringValue', value: 'TextUnited'},
+      {_key: 'de', _type: 'internationalizedArrayStringValue', value: 'TextUnited'},
+    ]
+    const units = extractTranslationUnits(page, pageConfig, config)
+    const title = units.find((unit) => unit.id === 'title')!
+    const written = applyTranslations({
+      units: [title],
+      languages: ['de'],
+      sourceLanguage: 'en',
+      sourceDocument: page,
+      targets: {model: 'fieldLevel', document: page},
+      translations: new Map([[title.segments[0]!.customId, new Map([['de', {content: 'TextUnited', status: 'automatic'}]])]]),
+      state: emptyState(),
+    })
+    const plan = (state: typeof written.state) =>
+      planTranslation({units, languages: ['de'], targets: {model: 'fieldLevel', document: page}, state, mode: 'missing'})
+        .selected.map(({unit}) => unit.id)
+    expect(plan(written.state)).not.toContain('title')
+    // the same value copied by hand (no record of the plugin writing it) still needs translation
+    expect(plan(emptyState())).toContain('title')
+  })
+})

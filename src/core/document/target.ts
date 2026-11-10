@@ -37,6 +37,17 @@ export function isMissingValue(unit: TranslationUnit, value: unknown): boolean {
   return blockText(value).trim() === '' || blockText(value) === blockText(unit.source)
 }
 
+/**
+ * True when a value still needs a translation. Like `isMissingValue`, except that a value the
+ * plugin itself wrote from TextUnited counts as translated even when it equals the source: names,
+ * codes and many short texts stay the same in other languages.
+ */
+export function needsTranslation(unit: TranslationUnit, value: unknown, appliedHash: string | undefined): boolean {
+  if (!isMissingValue(unit, value)) return false
+  const empty = unit.kind === 'text' ? typeof value !== 'string' || value.trim() === '' : blockText(value).trim() === ''
+  return empty || appliedHash !== valueHash(value)
+}
+
 /** Hash of a translated value, used to tell whether someone edited it after the plugin wrote it. */
 export function valueHash(value: unknown): string {
   return stableHash(JSON.stringify(value ?? null))
