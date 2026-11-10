@@ -1,4 +1,3 @@
-import {TranslateIcon} from '@sanity/icons'
 import {useEffect, useMemo, useState} from 'react'
 import {
   defineDocumentInspector,
@@ -11,6 +10,7 @@ import {getBaseDocumentId} from '../core/ids'
 import {languageProgress} from './logic'
 import type {TextUnitedStudioOptions} from './options'
 import {badgeLabel} from './summary'
+import {TextUnitedIcon} from './TextUnitedIcon'
 import {TranslationPanel} from './TranslationPanel'
 
 export const INSPECTOR_NAME = 'textunited-translation'
@@ -42,13 +42,13 @@ function useStateSummary(documentId: string): StateSummary {
   return state
 }
 
-/** The Translation panel next to the document, opened from the pane header or the action. */
+/** The TextUnited panel next to the document, opened from the pane header or the action. */
 export function createTranslationInspector(options: TextUnitedStudioOptions): DocumentInspector {
   return defineDocumentInspector({
     name: INSPECTOR_NAME,
     useMenuItem: () => ({
-      icon: TranslateIcon,
-      title: 'Translation',
+      icon: TextUnitedIcon,
+      title: 'TextUnited',
       showAsAction: true,
     }),
     component: (props) => (

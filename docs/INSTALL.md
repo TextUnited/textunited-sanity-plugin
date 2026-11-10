@@ -1,7 +1,7 @@
 # Installing the TextUnited plugin for Sanity
 
 This guide sets up TextUnited translations for a Sanity project. When it is done, editors get a
-**Translation** panel in Sanity Studio. It sends the texts of a document to TextUnited, adds a
+**TextUnited** panel in Sanity Studio. It sends the texts of a document to TextUnited, adds a
 machine translation to the draft right away, and replaces it with the reviewed translation as
 translators confirm it in TextUnited.
 
@@ -12,7 +12,7 @@ hosting settings of the website.
 
 The plugin has two parts:
 
-- **Studio part**: the Translation panel and the progress badge in Sanity Studio. It holds no
+- **Studio part**: the TextUnited panel and the progress badge in Sanity Studio. It holds no
   secrets.
 - **Server part**: a small API route on your website. It holds the TextUnited and Sanity tokens,
   talks to TextUnited, receives TextUnited's notifications and writes translations to Sanity.
@@ -62,7 +62,7 @@ The TextUnited plugin does not replace these plugins: they give editors the form
 language, and they keep your content in a standard format, so the website and other tools can
 read it without the TextUnited plugin.
 
-If a document type is set up with a model whose plugin is missing, the Translation panel says so
+If a document type is set up with a model whose plugin is missing, the TextUnited panel says so
 instead of offering to send texts.
 
 ## Step 1. Create the tokens
@@ -173,7 +173,7 @@ export default defineConfig({
       // Optional: which project types editors may choose (default: both)
       // projectTypes: ['outsourced', 'inHouse'],
       // defaultProjectType: 'outsourced',
-      // Optional: "Open in TextUnited" link in the Translation panel
+      // Optional: "Open in TextUnited" link in the TextUnited panel
       // projectUrl: (id) => `<TextUnited portal address>/project-packages?projectId=${id}`,
     }),
   ],
@@ -264,8 +264,8 @@ header).
 ## Step 7. Check that it works
 
 1. In the Studio, open a document of a configured type in the source language and click the
-   **Translation** icon in the document's header (or choose **Translate** in the `⋯` menu next
-   to Publish). The Translation panel opens next to the document.
+   **TextUnited** icon (*TU*) in the document's header (or choose **Translate with TextUnited**
+   in the `⋯` menu next to Publish). The TextUnited panel opens next to the document.
 2. Tick one target language and click **Send N texts to TextUnited**.
 3. After a few seconds the panel's history shows *Created the TextUnited project and sent N
    text(s)*, and the draft contains machine translations.
@@ -276,7 +276,9 @@ header).
 
 ## Using it
 
-**The Translation panel** opens from the icon in the document's header. It shows:
+**The TextUnited panel** opens from the *TU* icon in the document's header. It is separate from
+the *Translations* menu of Document Internationalization, which switches between language
+versions. The panel shows:
 
 - how many texts need translation (changed since they were sent, or not translated yet) and
   about how many words, with one button to send them

@@ -22,6 +22,7 @@ import {
 import type {TextUnitedStudioOptions} from './options'
 import {describePending, summarizePending} from './summary'
 import {TeamPicker} from './TeamPicker'
+import {TextUnitedIcon} from './TextUnitedIcon'
 import {useTranslationData, type RequestRecord} from './useTranslationData'
 
 const API_VERSION = '2025-02-19'
@@ -236,11 +237,11 @@ export function TranslationPanel(props: {
       <Card borderBottom paddingX={3} paddingY={2}>
         <Flex align="center" gap={2}>
           <Text size={1}>
-            <TranslateIcon />
+            <TextUnitedIcon />
           </Text>
           <Box flex={1}>
             <Text size={1} weight="semibold">
-              Translation
+              TextUnited
             </Text>
           </Box>
           {projectLink ? (

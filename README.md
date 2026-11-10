@@ -46,7 +46,7 @@ Done:
   that may still receive translations, which also covers TextUnited's "approve all", which sends
   no notification. Run it from a cron job, e.g. every 15 minutes.
 
-- Studio: a Translation panel (document inspector) next to the configured types, opened from
+- Studio: a TextUnited panel (document inspector) next to the configured types, opened from
   the document header or the "Translate" action. It shows how many texts need translation
   (changed or not translated yet, with a word count) and sends them with one button, the review
   progress per language, a link to the project in the TextUnited portal (`projectUrl` option),

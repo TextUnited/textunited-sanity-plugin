@@ -1,4 +1,3 @@
-import {TranslateIcon} from '@sanity/icons'
 import {useState} from 'react'
 import type {DocumentActionComponent} from 'sanity'
 import {useDocumentPane} from 'sanity/structure'
@@ -6,6 +5,7 @@ import {useDocumentPane} from 'sanity/structure'
 import {INSPECTOR_NAME} from './inspector'
 import {canTranslateDocument} from './logic'
 import type {TextUnitedStudioOptions} from './options'
+import {TextUnitedIcon} from './TextUnitedIcon'
 import {TranslationPanel} from './TranslationPanel'
 
 /** The document pane, or null where actions render outside one (e.g. in other tools). */
@@ -19,7 +19,7 @@ function useOptionalDocumentPane(): ReturnType<typeof useDocumentPane> | null {
 }
 
 /**
- * "Translate" in the document actions menu. Opens the Translation panel next to the document,
+ * "Translate" in the document actions menu. Opens the TextUnited panel next to the document,
  * or the same panel in a dialog where there is no document pane.
  */
 export function createTranslateAction(options: TextUnitedStudioOptions): DocumentActionComponent {
@@ -30,8 +30,8 @@ export function createTranslateAction(options: TextUnitedStudioOptions): Documen
     const check = canTranslateDocument(options.translation, props.type, document)
 
     return {
-      label: 'Translate',
-      icon: TranslateIcon,
+      label: 'Translate with TextUnited',
+      icon: TextUnitedIcon,
       disabled: !check.allowed,
       title: check.reason,
       onHandle: () => {
