@@ -46,10 +46,13 @@ Done:
   that may still receive translations, which also covers TextUnited's "approve all", which sends
   no notification. Run it from a cron job, e.g. every 15 minutes.
 
-- Studio: a "Translate" document action on the configured types (source-language documents
-  only). Its dialog shows the TextUnited status of the document, lets editors pick languages
-  (only the project's languages once a project exists) and one of three clearly described
-  modes, creates the request document and follows it until the server has finished.
+- Studio: a Translation panel (document inspector) next to the configured types, opened from
+  the document header or the "Translate" action. It shows how many texts need translation
+  (changed or not translated yet, with a word count) and sends them with one button, the review
+  progress per language, a link to the project in the TextUnited portal (`projectUrl` option),
+  and the last requests. A badge in the document footer shows the progress (e.g.
+  "DE 5/7 · PL 7/7"), and a message appears when reviewed translations arrive. In-house team
+  roles are remembered in the browser.
 
 - outsourced or in-house projects: for a new project the editor picks who translates. In-house
   lists the people of the TextUnited account (`GET /accounts/Users` and `/accounts/Collaborators`,

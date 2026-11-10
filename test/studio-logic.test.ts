@@ -6,7 +6,6 @@ import {
   describeRequest,
   languageOptions,
   languageProgress,
-  MODE_OPTIONS,
 } from '../src/studio/logic'
 import {config} from './fixtures'
 
@@ -87,8 +86,3 @@ describe('languageProgress', () => {
   })
 })
 
-describe('MODE_OPTIONS', () => {
-  it('lists the three modes the server understands', () => {
-    expect(MODE_OPTIONS.map((option) => option.value)).toEqual(['missing', 'changed', 'all'])
-  })
-})

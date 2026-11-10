@@ -262,9 +262,11 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
   let tasks = plan.tasks
   let projectLanguages = stored.projectLanguages
   let projectType = stored.projectType
+  let projectId = stored.projectId
 
   const awaiting: string[] = []
   const existing = await context.textUnited.getProject(customId)
+  if (typeof existing?.id === 'number') projectId = existing.id
   if (context.capabilities?.appendSegments) {
     // Append mode: only the selected texts go out, as one new task, and nothing already in the
     // project is replaced. The task id is new on every request, as the API requires.
@@ -296,7 +298,10 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
           }
           throw error
         })
-      if (created) responses.push(created)
+      if (created) {
+        responses.push(created)
+        if (typeof created.id === 'number') projectId = created.id
+      }
       summary.projectCreated = true
       projectLanguages = languages
     } else {
@@ -318,7 +323,7 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
     const sentUnits = plan.selected.map(({unit}) => unit)
     return finishRequest({
       context, request, mode, plan, source, typeConfig, loaded, languages, units, stored, baseState,
-      baseId, customId, projectLanguages, projectType, responses, summary, newId,
+      baseId, customId, projectLanguages, projectType, projectId, responses, summary, newId,
       sentState: recordSentUnits(baseState, sentUnits, now().toISOString(), taskId),
     })
   }
@@ -354,7 +359,10 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
         }
         throw error
       })
-    if (created) responses.push(created)
+    if (created) {
+        responses.push(created)
+        if (typeof created.id === 'number') projectId = created.id
+      }
     summary.projectCreated = true
     projectLanguages = languages
     tasks = rest
@@ -379,7 +387,7 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
 
   return finishRequest({
     context, request, mode, plan, source, typeConfig, loaded, languages, units, stored, baseState,
-    baseId, customId, projectLanguages, projectType, responses, summary, newId,
+    baseId, customId, projectLanguages, projectType, projectId, responses, summary, newId,
     // Every unit of a sent task was sent, since the API replaces whole tasks.
     sentState: recordSentUnits(baseState, units.filter((unit) => summary.tasksSent.includes(unit.taskId))),
   })
@@ -425,13 +433,14 @@ async function finishRequest(args: {
   customId: string
   projectLanguages: string[] | undefined
   projectType: ProjectType | undefined
+  projectId: number | undefined
   responses: ProjectResponse[]
   summary: JobSummary
   newId: () => string
   sentState: TranslationState
 }): Promise<JobSummary> {
   const {context, mode, plan, source, typeConfig, loaded, languages, units, stored, baseId, customId} = args
-  const {projectLanguages, projectType, responses, summary, newId} = args
+  const {projectLanguages, projectType, projectId, responses, summary, newId} = args
   const {config} = context
   // Only the selected units take the instant (machine) translation. Other units in the same tasks
   // were resent only because the API replaces whole tasks; their translations stay as they are.
@@ -482,7 +491,7 @@ async function finishRequest(args: {
         ...targetMutations,
         saveStateMutation(
           baseId,
-          {state, projectCustomId: customId, projectLanguages, projectType, revision: current.revision},
+          {state, projectCustomId: customId, projectLanguages, projectType, projectId, revision: current.revision},
           hasPendingTranslations(state, languagesNow, isFinalStatus),
         ),
       ])

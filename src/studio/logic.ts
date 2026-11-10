@@ -9,6 +9,7 @@ export type TranslationStatusData = {
     projectCustomId?: string
     projectLanguages?: string[]
     projectType?: ProjectType
+    projectId?: number
     stateJson?: string
     pending?: boolean
     updatedAt?: string
@@ -23,33 +24,6 @@ export type TranslationStatusData = {
     mode?: TranslationMode
   } | null
 }
-
-export const STATUS_QUERY = `{
-  "state": *[_id == $stateId][0]{projectCustomId, projectLanguages, projectType, stateJson, pending, updatedAt},
-  "lastRequest": *[_type == "textunited.translationRequest" && documentId == $documentId]
-    | order(_createdAt desc)[0]{_id, _createdAt, status, error, summaryJson, languages, mode}
-}`
-
-export const MODE_OPTIONS: Array<{value: TranslationMode; title: string; description: string}> = [
-  {
-    value: 'missing',
-    title: 'Missing translations',
-    description:
-      'Translates only texts that have no translation yet in the selected languages. Existing translations stay as they are.',
-  },
-  {
-    value: 'changed',
-    title: 'Missing and changed',
-    description:
-      'Also translates texts whose source changed since they were last sent. Their old translations are replaced.',
-  },
-  {
-    value: 'all',
-    title: 'Everything',
-    description:
-      'Translates all texts again and replaces every translation, including ones edited by hand in Sanity.',
-  },
-]
 
 export const PROJECT_TYPE_OPTIONS: Array<{value: ProjectType; title: string; description: string}> = [
   {

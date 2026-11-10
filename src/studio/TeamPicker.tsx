@@ -18,8 +18,10 @@ export function TeamPicker(props: {
   team: TeamChoice[]
   onChange: (team: TeamChoice[]) => void
   disabled?: boolean
+  /** Roles chosen last time, by person id; applied when the list is loaded */
+  savedRoles?: Record<number, Pick<TeamChoice, 'translator' | 'proofreader' | 'projectManager'>>
 }) {
-  const {handlerUrl, team, onChange, disabled} = props
+  const {handlerUrl, team, onChange, disabled, savedRoles} = props
   const client = useClient({apiVersion: API_VERSION})
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(team.length === 0)
@@ -42,9 +44,9 @@ export function TeamPicker(props: {
           onChange(
             (body.members ?? []).map((member) => ({
               ...member,
-              translator: false,
-              proofreader: false,
-              projectManager: false,
+              translator: savedRoles?.[member.id]?.translator === true,
+              proofreader: savedRoles?.[member.id]?.proofreader === true,
+              projectManager: savedRoles?.[member.id]?.projectManager === true,
             })),
           )
         }

@@ -65,6 +65,7 @@ export class MemoryStore implements SanityStore {
 
 type FakeTranslation = {languageCode: string; content: string; status: string}
 type FakeProject = {
+  id: number
   customId: string
   languages: string[]
   /** Keyed by segment custom id; an appended copy in another task is keyed `id@task` */
@@ -167,6 +168,7 @@ export function createFakeTextUnited(options: {hangOnPutTask?: string} = {}) {
       const project = projects.get(decodeURIComponent(projectMatch[1]!))
       if (!project) return new Response('', {status: 404})
       return Response.json({
+        id: project.id,
         customId: project.customId,
         targetLanguages: project.languages.map((code) => ({targetLanguageCode: code})),
       })
@@ -177,9 +179,10 @@ export function createFakeTextUnited(options: {hangOnPutTask?: string} = {}) {
       const languages = (body!.targetLanguages as Array<{targetLanguageCode: string}>).map(
         (target) => target.targetLanguageCode,
       )
-      const project: FakeProject = {customId: String(body!.customId), languages, segments: new Map()}
+      const project: FakeProject = {id: 400000 + projects.size + 1, customId: String(body!.customId), languages, segments: new Map()}
       projects.set(project.customId, project)
       return Response.json({
+        id: project.id,
         customId: project.customId,
         instantTranslationSegments: replaceTask(project, String(body!.taskId), segments),
       })

@@ -144,6 +144,8 @@ export default defineConfig({
       // Optional: which project types editors may choose (default: both)
       // projectTypes: ['outsourced', 'inHouse'],
       // defaultProjectType: 'outsourced',
+      // Optional: "Open in TextUnited" link in the Translation panel
+      // projectUrl: (id) => `<TextUnited portal address>/project-packages?projectId=${id}`,
     }),
   ],
 })
@@ -232,11 +234,12 @@ header).
 
 ## Step 7. Check that it works
 
-1. In the Studio, open a document of a configured type in the source language and choose
-   **Translate** in the document actions menu (the `⋯` next to Publish).
-2. Pick one target language, keep **Missing translations**, and click **Translate**.
-3. After a few seconds the dialog shows *Created the TextUnited project and sent N text(s)*, and
-   the draft contains machine translations.
+1. In the Studio, open a document of a configured type in the source language and click the
+   **Translation** icon in the document's header (or choose **Translate** in the `⋯` menu next
+   to Publish). The Translation panel opens next to the document.
+2. Tick one target language and click **Send N texts to TextUnited**.
+3. After a few seconds the panel's history shows *Created the TextUnited project and sent N
+   text(s)*, and the draft contains machine translations.
 4. In the TextUnited portal, the project is named after the document's title.
 5. Confirm a segment in TextUnited. Within a minute (or at the next periodic check) the reviewed
    text replaces the machine translation in the draft.
@@ -244,26 +247,35 @@ header).
 
 ## Using it
 
+**The Translation panel** opens from the icon in the document's header. It shows:
+
+- how many texts need translation (changed since they were sent, or not translated yet) and
+  about how many words, with one button to send them
+- each language with its review progress in TextUnited
+- *Open in TextUnited*, a link to the project (when the `projectUrl` option is set)
+- the last requests
+
+The document's footer shows a badge with the review progress, e.g. *DE 5/7 · PL 7/7*, and the
+Studio shows a short message when reviewed translations arrive while the panel is open.
+
 **Target languages.** The first request decides the languages of the document's TextUnited
-project. Languages that are not in the project are shown as *Not in project*; adding a language
-to an existing project is not supported by TextUnited yet.
+project. Languages that are not in the project are listed under *Not in this project*; adding a
+language to an existing project is not supported by TextUnited yet.
 
 **Who translates** (first request of a document only):
 
 - *TextUnited translators (outsourced)*: TextUnited manages the project and assigns translators.
 - *Your own team (in-house)*: pick people of your TextUnited account and their roles. At least
-  one translator is needed.
+  one translator is needed. The Studio remembers the roles for the next document.
 
-**What to translate:**
+**What is sent.** *Send N texts* sends the texts that have no translation yet in a chosen
+language and the texts whose source was edited since they were sent; translations of edited
+texts are replaced. Other translations stay as they are. Under **More options**,
+*Retranslate everything* sends all texts again and replaces every translation, including ones
+edited by hand in Sanity.
 
-| Option | Sends | Existing translations |
-|---|---|---|
-| Missing translations | texts with no translation yet in a selected language | kept |
-| Missing and changed | also texts whose source was edited since they were sent | translations of edited texts are replaced |
-| Everything | all texts | all replaced, including ones edited by hand in Sanity |
-
-Translations edited by hand in Sanity are kept when TextUnited sends an update, unless
-*Everything* is requested or the source text was edited.
+Translations edited by hand in Sanity are kept when TextUnited sends an update, unless the
+source text was edited or *Retranslate everything* was used.
 
 ## Troubleshooting
 

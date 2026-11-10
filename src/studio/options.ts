@@ -14,4 +14,9 @@ export type TextUnitedStudioOptions = {
   projectTypes?: ProjectType[]
   /** Preselected type for a new project. Defaults to `outsourced`. */
   defaultProjectType?: ProjectType
+  /**
+   * Address of a project in the TextUnited portal, for the "Open in TextUnited" link, e.g.
+   * `(id) => 'https://portal.example/project-packages?projectId=' + id`. No link without it.
+   */
+  projectUrl?: (projectId: number) => string
 }

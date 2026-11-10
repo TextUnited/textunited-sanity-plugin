@@ -1,6 +1,7 @@
 import {definePlugin} from 'sanity'
 
 import type {TextUnitedStudioOptions} from './options'
+import {createTranslationBadge, createTranslationInspector} from './inspector'
 import {createTranslateAction} from './TranslateAction'
 
 export type {TranslationConfig, DocumentTypeConfig, TranslationLanguage} from '../core/config'
@@ -21,12 +22,18 @@ export const textUnitedTranslations = definePlugin<TextUnitedStudioOptions>((opt
 
   const types = new Set(options.translation.documentTypes.map((entry) => entry.type))
   const TranslateAction = createTranslateAction(options)
+  const TranslationBadge = createTranslationBadge()
+  const translationInspector = createTranslationInspector(options)
 
   return {
     name: '@textunited/sanity-plugin',
     document: {
       actions: (previous, context) =>
         types.has(context.schemaType) ? [...previous, TranslateAction] : previous,
+      badges: (previous, context) =>
+        types.has(context.schemaType) ? [...previous, TranslationBadge] : previous,
+      inspectors: (previous, context) =>
+        types.has(context.documentType) ? [...previous, translationInspector] : previous,
     },
   }
 })

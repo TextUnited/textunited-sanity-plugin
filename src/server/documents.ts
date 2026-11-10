@@ -28,6 +28,8 @@ export type StoredState = {
   projectLanguages?: string[]
   /** `outsourced` (TextUnited assigns the team) or `inHouse` (the company's own team) */
   projectType?: 'outsourced' | 'inHouse'
+  /** Numeric id of the TextUnited project, for links to the TextUnited portal */
+  projectId?: number
   /** Revision of the state document when it was read; absent when it does not exist yet */
   revision?: string
 }
@@ -53,6 +55,7 @@ export async function loadState(store: SanityStore, baseDocumentId: string): Pro
       document.projectType === 'inHouse' || document.projectType === 'outsourced'
         ? document.projectType
         : undefined,
+    projectId: typeof document.projectId === 'number' ? document.projectId : undefined,
   }
 }
 
@@ -71,6 +74,7 @@ export function saveStateMutation(
     projectCustomId: stored.projectCustomId,
     projectLanguages: stored.projectLanguages,
     projectType: stored.projectType,
+    projectId: stored.projectId,
     stateJson: JSON.stringify(stored.state),
     pending,
     updatedAt: new Date().toISOString(),

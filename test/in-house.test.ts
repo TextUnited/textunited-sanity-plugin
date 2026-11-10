@@ -99,6 +99,8 @@ describe('in-house projects', () => {
     expect(target.managedProject).toBe(true)
     expect(target.team).toBeUndefined()
     expect(t.store.documents.get('textunited.state.page1')?.projectType).toBe('outsourced')
+    // the numeric TextUnited project id is kept for links to the portal
+    expect(t.store.documents.get('textunited.state.page1')?.projectId).toBe(400001)
   })
 })
 
