@@ -13,9 +13,8 @@ entry never contains server code.
 
 ## Status
 
-Work in progress, not published yet. It will be published on the public npm as
-`@textunited/sanity-plugin` (like `@textunited/n8n-nodes-textunited`). Until the release is
-approved, `"private": true` in `package.json` blocks publishing; remove it for the first release.
+Published on npm as `@textunited/sanity-plugin` (first release 0.1.0). Changes are listed in
+[CHANGELOG.md](https://github.com/TextUnited/textunited-sanity-plugin/blob/main/CHANGELOG.md).
 
 Done:
 - package layout, build (ESM + CJS + types), tests
@@ -71,16 +70,14 @@ Done:
 Tried on the TextUnited website (local Studio + Next.js, test documents): pages, a blog post,
 outsourced and in-house projects.
 
-- append mode (`textUnited.capabilities.appendSegments: true`) for APIs where
-  `PUT /segments/projects` supports `appendContent: true` (today: the TextUnited dev API,
-  `https://devapinew.textunited.com`): the project is created with the texts that need
+- append mode (default): the project is created with the texts that need
   translation as task `content`; each later request sends only its new and changed texts as one
   new task `update-<UTC date>-<time>-<random>`, and nothing in the project is replaced. The state
   remembers the task each text was last sent in, and translations are read only from that task.
 
-Next:
-1. make append mode the default once the production API supports it
-2. first release on the public npm: remove `"private": true`, set the version, `npm publish`
+Tried against the TextUnited production API (November 2026): new project, appended changes with
+formatted text, a language added as a new project, stop and resume, a blog post, reviewed
+translations received.
 
 ## Installation
 
@@ -153,18 +150,15 @@ Known limits:
 
 ## TextUnited API today
 
-Production: `PUT /segments/projects` replaces a whole task (virtual file) on every update, and
-TextUnited then repackages the whole project. The package therefore sends each changed part of a
-document as its own task, so an update touches only that part (default,
-`appendSegments: false`).
+`PUT /segments/projects` with `appendContent: true` adds the segments as a new task and leaves
+existing tasks and their work untouched; the task id must be new (HTTP 400 otherwise). The
+package uses it by default. Outdated copies of edited texts stay in the earlier tasks in
+TextUnited; translators may still see them, the package ignores them.
 
-Dev API (`https://devapinew.textunited.com`): `appendContent: true` adds the segments as a new
-task and leaves existing tasks and their work untouched; the task id must be new (HTTP 400
-otherwise). Enable it with `textUnited: {baseUrl: 'https://devapinew.textunited.com',
-capabilities: {appendSegments: true}}`. Outdated copies of edited texts stay in the earlier tasks
-in TextUnited; translators may still see them, the package ignores them.
+For an API without it, `textUnited: {capabilities: {appendSegments: false}}` sends each changed
+part of a document as its own task and replaces that task on every update.
 
-## Setup on the customer's side (planned)
+## Setup on the customer's side
 
 - TextUnited personal access token with the scopes `projects:read` and `projects:write`
 - Sanity token with write access
@@ -179,6 +173,10 @@ npm test
 npm run typecheck
 npm run build
 ```
+
+Releasing: set the version in `package.json`, add it to `CHANGELOG.md`, commit, tag (`v0.1.0`),
+then `npm publish` (runs the type check, the tests and the build first; `publishConfig.access`
+is `public`).
 
 ## License
 

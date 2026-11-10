@@ -14,7 +14,7 @@ function setup(documents: PlainObject[]) {
   const textUnited = createFakeTextUnited()
   const options: TextUnitedHandlerOptions = {
     translation: config,
-    textUnited: {auth: {type: 'pat', token: 'tu_pat_test'}},
+    textUnited: {auth: {type: 'pat', token: 'tu_pat_test'}, capabilities: {appendSegments: false}},
     sanity: {projectId: 'proj', dataset: 'production', token: 'sk-test'},
     publicBaseUrl: 'https://www.example.com',
     basePath: '/api/textunited',
@@ -159,7 +159,7 @@ describe('slow TextUnited answers', () => {
     const textUnited = createFakeTextUnited({hangOnPutTask: 'fields'})
     const handle = createTextUnitedRequestHandler({
       translation: config,
-      textUnited: {auth: {type: 'pat', token: 'tu_pat_test'}, timeoutMs: 50},
+      textUnited: {auth: {type: 'pat', token: 'tu_pat_test'}, capabilities: {appendSegments: false}, timeoutMs: 50},
       sanity: {projectId: 'proj', dataset: 'production', token: 'sk-test'},
       publicBaseUrl: 'https://www.example.com',
       basePath: '/api/textunited',
@@ -197,7 +197,7 @@ describe('local development', () => {
     const textUnited = createFakeTextUnited()
     const handle = createTextUnitedRequestHandler({
       translation: config,
-      textUnited: {auth: {type: 'pat', token: 'tu_pat_test'}},
+      textUnited: {auth: {type: 'pat', token: 'tu_pat_test'}, capabilities: {appendSegments: false}},
       sanity: {projectId: 'proj', dataset: 'production', token: 'sk-test'},
       publicBaseUrl: 'http://localhost:3000',
       basePath: '/api/textunited',

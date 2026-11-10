@@ -13,7 +13,7 @@ function setup(documents: PlainObject[]) {
   const textUnited = createFakeTextUnited()
   const handle = createTextUnitedRequestHandler({
     translation: config,
-    textUnited: {auth: {type: 'pat', token: 'tu_pat_test'}, project: {styleGuideId: 861}},
+    textUnited: {auth: {type: 'pat', token: 'tu_pat_test'}, capabilities: {appendSegments: false}, project: {styleGuideId: 861}},
     sanity: {projectId: 'proj', dataset: 'production', token: 'sk-test'},
     publicBaseUrl: 'https://www.example.com',
     basePath: '/api/textunited',

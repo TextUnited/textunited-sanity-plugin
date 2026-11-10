@@ -45,7 +45,7 @@ function setup(translation: TranslationConfig, documents: PlainObject[]) {
   const textUnited = createFakeTextUnited()
   const handle = createTextUnitedRequestHandler({
     translation,
-    textUnited: {auth: {type: 'pat', token: 'tu_pat_test'}},
+    textUnited: {auth: {type: 'pat', token: 'tu_pat_test'}, capabilities: {appendSegments: false}},
     sanity: {projectId: 'proj', dataset: 'production', token: 'sk-test'},
     publicBaseUrl: 'https://www.example.com',
     basePath: '/api/textunited',

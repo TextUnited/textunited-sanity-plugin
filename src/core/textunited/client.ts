@@ -49,7 +49,8 @@ export type TextUnitedCapabilities = {
   appendSegments: boolean
 }
 
-export const DEFAULT_CAPABILITIES: TextUnitedCapabilities = {appendSegments: false}
+/** The production API supports appending segments since November 2026. */
+export const DEFAULT_CAPABILITIES: TextUnitedCapabilities = {appendSegments: true}
 
 export class TextUnitedApiError extends Error {
   readonly status: number

@@ -1,8 +1,7 @@
 {
   "name": "@textunited/sanity-plugin",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Translate Sanity content with TextUnited: Studio plugin and server handler in one package",
-  "private": true,
   "license": "MIT",
   "author": {
     "name": "TextUnited",
@@ -47,14 +46,16 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "peerDependencies": {
     "@sanity/icons": "^2 || ^3",
