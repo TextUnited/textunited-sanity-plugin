@@ -1,13 +1,15 @@
 import {CheckmarkCircleIcon, CloseIcon, LaunchIcon, TranslateIcon} from '@sanity/icons'
 import {Badge, Box, Button, Card, Checkbox, Flex, Radio, Spinner, Stack, Text, useToast} from '@sanity/ui'
 import {useEffect, useMemo, useRef, useState} from 'react'
-import {useClient} from 'sanity'
+import {useClient, useSchema} from 'sanity'
 
 import {getBaseDocumentId} from '../core/ids'
 import type {TranslationMode} from '../core/plan'
 import {
   canTranslateDocument,
+  checkLocalizationSetup,
   describeRequest,
+  INSTALL_GUIDE_URL,
   languageOptions,
   languageProgress,
   PROJECT_TYPE_OPTIONS,
@@ -185,6 +187,11 @@ export function TranslationPanel(props: {
   const lastRequest = data.requests[0]
   const running = isRunning(lastRequest)
   const check = canTranslateDocument(options.translation, documentType, data.source)
+  const schema = useSchema()
+  const setupError = useMemo(
+    () => checkLocalizationSetup(options.translation, documentType, schema.getTypeNames()),
+    [options.translation, documentType, schema],
+  )
 
   const send = async (mode: TranslationMode) => {
     setSubmitting(true)
@@ -262,14 +269,40 @@ export function TranslationPanel(props: {
           </Flex>
         ) : null}
 
-        {!data.loading && !check.allowed ? (
+        {setupError ? (
+          <Card padding={3} radius={2} tone="critical">
+            <Stack space={3}>
+              <Text size={1} weight="semibold">
+                Translation is not set up for this document type
+              </Text>
+              <Text size={1}>{setupError}</Text>
+              <Text size={1}>
+                <a href={INSTALL_GUIDE_URL} target="_blank" rel="noreferrer">
+                  Read the installation guide
+                </a>
+              </Text>
+            </Stack>
+          </Card>
+        ) : null}
+
+        {!data.loading && !setupError && !check.allowed ? (
           <Card padding={3} radius={2} tone="caution">
             <Text size={1}>{check.reason}</Text>
           </Card>
         ) : null}
 
-        {!data.loading && check.allowed ? (
+        {!data.loading && !setupError && check.allowed ? (
           <>
+            {data.source && data.units.length === 0 ? (
+              <Card padding={3} radius={2} tone="caution">
+                <Text size={1}>
+                  This document has no texts to translate. Fill in the {options.translation.sourceLanguage.title}{' '}
+                  version, and check that its fields use localized field types (fieldLevel) or are
+                  listed in the translation configuration (documentLevel).
+                </Text>
+              </Card>
+            ) : null}
+
             {running ? (
               <Card padding={3} radius={2} tone="primary">
                 <Flex align="center" gap={3}>

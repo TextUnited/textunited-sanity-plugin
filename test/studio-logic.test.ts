@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest'
 
 import {
   canTranslateDocument,
+  checkLocalizationSetup,
   defaultLanguages,
   describeRequest,
   languageOptions,
@@ -86,3 +87,22 @@ describe('languageProgress', () => {
   })
 })
 
+
+describe('checkLocalizationSetup', () => {
+  const withBoth = ['page', 'post', 'internationalizedArrayString', 'translation.metadata']
+
+  it('accepts a Studio with the localization plugins the configured types need', () => {
+    expect(checkLocalizationSetup(config, 'page', withBoth)).toBeNull()
+    expect(checkLocalizationSetup(config, 'post', withBoth)).toBeNull()
+    expect(checkLocalizationSetup(config, 'author', [])).toBeNull()
+  })
+
+  it('names the missing plugin', () => {
+    expect(checkLocalizationSetup(config, 'page', ['page', 'translation.metadata'])).toMatch(
+      /Internationalized Array plugin/,
+    )
+    expect(checkLocalizationSetup(config, 'post', ['post', 'internationalizedArrayString'])).toMatch(
+      /Document Internationalization plugin/,
+    )
+  })
+})

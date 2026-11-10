@@ -137,6 +137,41 @@ export function defaultLanguages(options: LanguageOption[], projectLanguages: st
   return options.filter((option) => option.available).map((option) => option.id)
 }
 
+export const INSTALL_GUIDE_URL =
+  'https://github.com/TextUnited/textunited-sanity-plugin/blob/main/docs/INSTALL.md#before-you-start-how-does-your-studio-store-translations'
+
+/**
+ * Checks that the Studio has the Sanity localization plugin the document type's model needs.
+ * Returns a message for editors, or null when the setup is fine.
+ * - fieldLevel: sanity-plugin-internationalized-array, which registers `internationalizedArray…`
+ *   schema types
+ * - documentLevel: @sanity/document-internationalization, which registers `translation.metadata`
+ */
+export function checkLocalizationSetup(
+  config: TranslationConfig,
+  documentType: string,
+  schemaTypeNames: Iterable<string>,
+): string | null {
+  const typeConfig = config.documentTypes.find((entry) => entry.type === documentType)
+  if (!typeConfig) return null
+  const names = [...schemaTypeNames]
+  if (typeConfig.model === 'fieldLevel' && !names.some((name) => name.startsWith('internationalizedArray'))) {
+    return (
+      `“${documentType}” is set up to translate fields (fieldLevel), but this Studio has no ` +
+      'Internationalized Array plugin (sanity-plugin-internationalized-array). Add it, or change ' +
+      'the model in the translation configuration.'
+    )
+  }
+  if (typeConfig.model === 'documentLevel' && !names.includes('translation.metadata')) {
+    return (
+      `“${documentType}” is set up to translate whole documents (documentLevel), but this Studio ` +
+      'has no Document Internationalization plugin (@sanity/document-internationalization). Add ' +
+      'it, or change the model in the translation configuration.'
+    )
+  }
+  return null
+}
+
 /**
  * The action is offered on documents in the source language. For document-level translation,
  * translated copies carry another language and do not get the action.

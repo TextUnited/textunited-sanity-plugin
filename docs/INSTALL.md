@@ -1,7 +1,7 @@
 # Installing the TextUnited plugin for Sanity
 
 This guide sets up TextUnited translations for a Sanity project. When it is done, editors get a
-**Translate** button in Sanity Studio. It sends the texts of a document to TextUnited, adds a
+**Translation** panel in Sanity Studio. It sends the texts of a document to TextUnited, adds a
 machine translation to the draft right away, and replaces it with the reviewed translation as
 translators confirm it in TextUnited.
 
@@ -12,7 +12,8 @@ hosting settings of the website.
 
 The plugin has two parts:
 
-- **Studio part**: the Translate button and dialog in Sanity Studio. It holds no secrets.
+- **Studio part**: the Translation panel and the progress badge in Sanity Studio. It holds no
+  secrets.
 - **Server part**: a small API route on your website. It holds the TextUnited and Sanity tokens,
   talks to TextUnited, receives TextUnited's notifications and writes translations to Sanity.
 
@@ -31,10 +32,38 @@ creates the project. Every later request adds only the new and changed texts to 
 | | |
 |---|---|
 | Sanity Studio | v3.40 or later, v4 or v5 |
-| Localization in Sanity | [sanity-plugin-internationalized-array](https://github.com/sanity-io/sanity-plugin-internationalized-array) (one document, translated fields) and/or [@sanity/document-internationalization](https://github.com/sanity-io/document-internationalization) (one document per language) |
+| Localization in Sanity | one of Sanity's two localization plugins, see the next section |
 | A website or server for the server part | Next.js (App Router) is supported directly. Any runtime with web `Request`/`Response` works too (Node 20+, Bun, Deno, Remix, Hono). |
 | A public HTTPS address of that website | TextUnited sends its notifications there, e.g. `https://www.example.com` |
 | A TextUnited account | with the target languages you want to order |
+
+## Before you start: how does your Studio store translations?
+
+Sanity Studio has no translations of its own. A Studio stores them in one of two ways, each
+provided by a plugin from the Sanity team. The TextUnited plugin writes translations in the
+same format, so the Studio needs **at least one of them**:
+
+| Model in the TextUnited configuration | Sanity plugin it needs | How translations are stored |
+|---|---|---|
+| `fieldLevel` | [sanity-plugin-internationalized-array](https://github.com/sanity-io/sanity-plugin-internationalized-array) | One document. Each translatable field holds a value per language (a title in English, German, Polish…). Common for pages. |
+| `documentLevel` | [@sanity/document-internationalization](https://github.com/sanity-io/document-internationalization) | One document per language, linked together. Common for blog posts. |
+
+How to check which one you have: open `sanity.config.ts` and look for `internationalizedArray(`
+or `documentInternationalization(` in the `plugins` list. Many Studios use both, each for
+different document types; then set the model per document type in step 3.
+
+**Neither is installed?** Then the Studio and the website show content in one language only.
+Add one of the two plugins first, following its own guide, and update the website so that it
+shows the translated content. Choose `fieldLevel` when the pages share their structure across
+languages, and `documentLevel` when each language needs its own document (for example its own
+slug or a different set of blog posts).
+
+The TextUnited plugin does not replace these plugins: they give editors the form fields for each
+language, and they keep your content in a standard format, so the website and other tools can
+read it without the TextUnited plugin.
+
+If a document type is set up with a model whose plugin is missing, the Translation panel says so
+instead of offering to send texts.
 
 ## Step 1. Create the tokens
 
