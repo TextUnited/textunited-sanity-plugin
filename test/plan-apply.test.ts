@@ -4,7 +4,7 @@ import {getDocumentTypeConfig} from '../src/core/config'
 import {applyTranslations, type TranslationsBySegment} from '../src/core/document/apply'
 import {extractTranslationUnits, type TranslationUnit} from '../src/core/document/extract'
 import {getAtPath} from '../src/core/document/paths'
-import {emptyState, planTranslation, recordSentUnits} from '../src/core/plan'
+import {emptyState, migrateLegacyState, planTranslation, recordSentUnits} from '../src/core/plan'
 import {config, makePage, makePost} from './fixtures'
 
 const pageConfig = getDocumentTypeConfig(config, 'page')!
@@ -245,5 +245,26 @@ describe('applyTranslations', () => {
       state: emptyState(),
     })
     expect(result.outcomes[0]?.outcome).toBe('incomplete')
+  })
+})
+
+describe('migrateLegacyState', () => {
+  it('moves what was sent before several projects existed to the first project', () => {
+    const legacy = {
+      units: {
+        a: {sourceHash: 'h1', sentAt: 't1', taskId: 'update-1', languages: {de: {appliedHash: 'x', status: 'translated'}}},
+        b: {sourceHash: 'h2', languages: {}},
+      },
+    }
+    const migrated = migrateLegacyState(legacy, 'proj-1')
+    expect(migrated.units.a).toEqual({
+      sourceHash: 'h1',
+      sentAt: 't1',
+      projects: {'proj-1': {sourceHash: 'h1', sentAt: 't1', taskId: 'update-1'}},
+      languages: {de: {appliedHash: 'x', status: 'translated'}},
+    })
+    // a baseline of a value never sent stays as it is
+    expect(migrated.units.b).toEqual({sourceHash: 'h2', languages: {}})
+    expect(migrateLegacyState(legacy, undefined)).toBe(legacy)
   })
 })

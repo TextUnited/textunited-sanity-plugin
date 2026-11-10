@@ -46,6 +46,11 @@ Done:
   that may still receive translations, which also covers TextUnited's "approve all", which sends
   no notification. Run it from a cron job, e.g. every 15 minutes.
 
+- several TextUnited projects per document: languages added later get a project of their own
+  (`-2`, `-3`… after the document's custom id); a change of the text is sent to every project
+  with a requested language, and notifications read every project. "Start a new TextUnited
+  project" (reset) archives the current projects and sends the whole document to a new one.
+  States from the single-project format are read and migrated.
 - Studio: a TextUnited panel (document inspector) next to the configured types, opened from
   the document header or the "Translate" action. It shows how many texts need translation
   (changed or not translated yet, with a word count) and sends them with one button, the review
@@ -139,8 +144,8 @@ Known limits:
 - In field-level documents, text inside custom objects embedded in a localized rich-text field
   is copied, not translated.
 - Blocks removed from the source stay in existing translations until the next full update.
-- A language cannot be added to an existing TextUnited project yet (API limitation); the request
-  fails with an explanation.
+- TextUnited cannot add a language to an existing project; a language added later is ordered as
+  a separate project for that language (several projects per document).
 - documentLevel: references in a new translation (author, categories) still point to the
   source-language documents.
 

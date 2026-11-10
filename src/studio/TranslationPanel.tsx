@@ -4,6 +4,7 @@ import {useEffect, useMemo, useRef, useState} from 'react'
 import {useClient, useSchema} from 'sanity'
 
 import {getBaseDocumentId} from '../core/ids'
+import {projectForLanguage, projectLanguages, type ProjectRecord} from '../core/projects'
 import type {TranslationMode} from '../core/plan'
 import {
   canTranslateDocument,
@@ -11,7 +12,6 @@ import {
   checkLocalizationSetup,
   describeRequest,
   INSTALL_GUIDE_URL,
-  languageOptions,
   languageProgress,
   PROJECT_TYPE_OPTIONS,
   projectTypeLabel,
@@ -97,8 +97,8 @@ function ProgressBar(props: {value: number; complete: boolean}) {
 
 /**
  * The TextUnited panel next to a document: what needs translation, progress per language, one
- * button to send, and the recent history. Used as a document inspector, and inside a dialog
- * where no document pane is available.
+ * button to send, the document's TextUnited projects and the recent history. Used as a document
+ * inspector, and inside a dialog where no document pane is available.
  */
 export function TranslationPanel(props: {
   documentId: string
@@ -113,27 +113,32 @@ export function TranslationPanel(props: {
   const {projectId: sanityProjectId, dataset} = client.config()
   const storageKey = teamStorageKey(String(sanityProjectId), String(dataset))
 
-  const projectLanguages = data.state?.projectLanguages
-  const hasProject = Boolean(data.state?.projectCustomId)
-  const languages = useMemo(
-    () => languageOptions(options.translation, projectLanguages),
-    [options.translation, projectLanguages],
-  )
+  const {projects, archived} = data
+  const hasProject = projects.length > 0
+  const languages = options.translation.targetLanguages
   const [selected, setSelected] = useState<string[] | null>(null)
   useEffect(() => {
-    // Preselect the project's languages once the status is known.
-    if (!data.loading && selected === null) setSelected(projectLanguages ?? [])
-  }, [data.loading, selected, projectLanguages])
-  const chosen = (selected ?? []).filter((id) => languages.some((option) => option.id === id && option.available))
+    // Preselect the languages of the document's projects once the status is known.
+    if (!data.loading && selected === null) setSelected(projectLanguages(projects))
+  }, [data.loading, selected, projects])
+  const chosen = (selected ?? []).filter((id) => languages.some((language) => language.id === id))
+
+  // A reset starts a new project for the chosen languages; the current ones are kept as they are.
+  const [resetMode, setResetMode] = useState(false)
+  const newLanguages = resetMode ? chosen : chosen.filter((id) => !projectForLanguage(projects, id))
+  const needsNewProject = !hasProject || newLanguages.length > 0
 
   const allowedTypes = options.projectTypes?.length ? options.projectTypes : (['outsourced', 'inHouse'] as ProjectType[])
-  const [projectType, setProjectType] = useState<ProjectType>(
-    options.defaultProjectType && allowedTypes.includes(options.defaultProjectType)
-      ? options.defaultProjectType
-      : allowedTypes[0] ?? 'outsourced',
-  )
+  const preferredType =
+    projects[0]?.projectType && allowedTypes.includes(projects[0].projectType)
+      ? projects[0].projectType
+      : options.defaultProjectType && allowedTypes.includes(options.defaultProjectType)
+        ? options.defaultProjectType
+        : (allowedTypes[0] ?? 'outsourced')
+  const [projectType, setProjectType] = useState<ProjectType | null>(null)
+  const typeForNewProject = projectType ?? preferredType
   const [team, setTeam] = useState<TeamChoice[]>([])
-  const inHouse = !hasProject && projectType === 'inHouse'
+  const inHouse = needsNewProject && typeForNewProject === 'inHouse'
   const teamError = inHouse ? validateTeam(team) : null
 
   const [showMore, setShowMore] = useState(false)
@@ -141,8 +146,8 @@ export function TranslationPanel(props: {
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const progress = useMemo(
-    () => languageProgress(data.state?.stateJson, projectLanguages),
-    [data.state?.stateJson, projectLanguages],
+    () => languageProgress(data.translationState, projects),
+    [data.translationState, projects],
   )
   const pending = useMemo(
     () =>
@@ -152,10 +157,11 @@ export function TranslationPanel(props: {
             targets: data.targets,
             state: data.translationState,
             languages: chosen,
+            projects: resetMode ? [] : projects,
           })
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data.units, data.targets, data.translationState, chosen.join(',')],
+    [data.units, data.targets, data.translationState, chosen.join(','), projects, resetMode],
   )
   const perLanguage = useMemo(
     () =>
@@ -164,10 +170,11 @@ export function TranslationPanel(props: {
             units: data.units,
             targets: data.targets,
             state: data.translationState,
-            languages: languages.filter((option) => option.available).map((option) => option.id),
+            languages: languages.map((language) => language.id),
+            projects,
           }).byLanguage
         : {},
-    [data.units, data.targets, data.translationState, languages],
+    [data.units, data.targets, data.translationState, languages, projects],
   )
 
   // Tell the editor when reviewed translations arrive while the panel is open.
@@ -197,7 +204,7 @@ export function TranslationPanel(props: {
     [options.translation, documentType, schema, data.source],
   )
 
-  const send = async (mode: TranslationMode) => {
+  const send = async (mode: TranslationMode, reset = false) => {
     setSubmitting(true)
     setSubmitError(null)
     const requestId = `textunited.request.${crypto.randomUUID()}`
@@ -210,7 +217,11 @@ export function TranslationPanel(props: {
         mode,
         status: 'queued',
         requestedAt: new Date().toISOString(),
-        ...(hasProject ? {} : {projectType, ...(inHouse ? {team: teamForRequest(team)} : {})}),
+        ...(reset ? {reset: true} : {}),
+        // The project type and team matter only when the request creates a project.
+        ...(needsNewProject
+          ? {projectType: typeForNewProject, ...(inHouse ? {team: teamForRequest(team)} : {})}
+          : {}),
       })
       if (inHouse) saveRoles(storageKey, team)
     } catch (error) {
@@ -230,10 +241,22 @@ export function TranslationPanel(props: {
     data.refresh()
     setSubmitting(false)
     setShowMore(false)
+    setResetMode(false)
   }
 
-  const projectLink =
-    typeof data.state?.projectId === 'number' && options.projectUrl ? options.projectUrl(data.state.projectId) : null
+  const linkTo = (project: ProjectRecord) =>
+    typeof project.projectId === 'number' && options.projectUrl ? options.projectUrl(project.projectId) : null
+  const titleOf = (id: string) => languages.find((language) => language.id === id)?.title ?? id
+  const listTitles = (ids: string[]) => ids.map(titleOf).join(', ')
+  const headerLink = projects.length === 1 && projects[0] ? linkTo(projects[0]) : null
+
+  const sendLabel = () => {
+    if (chosen.length === 0) return 'Choose a language'
+    if (teamError && team.length > 0) return teamError
+    if (resetMode) return `Start a new project for ${chosen.length === 1 ? '1 language' : `${chosen.length} languages`}`
+    if (!pending || pending.texts === 0) return 'Nothing to send'
+    return `Send ${pending.texts === 1 ? '1 text' : `${pending.texts} texts`} to TextUnited`
+  }
 
   return (
     <Flex direction="column" height="fill" style={{overflow: 'auto'}}>
@@ -247,10 +270,10 @@ export function TranslationPanel(props: {
               TextUnited
             </Text>
           </Box>
-          {projectLink ? (
+          {headerLink ? (
             <Button
               as="a"
-              href={projectLink}
+              href={headerLink}
               target="_blank"
               rel="noreferrer"
               mode="bleed"
@@ -326,7 +349,7 @@ export function TranslationPanel(props: {
               </Card>
             ) : null}
 
-            {!running && pending && chosen.length > 0 ? (
+            {!running && !resetMode && pending && chosen.length > 0 ? (
               pending.texts > 0 ? (
                 <Card padding={3} radius={2} tone="caution">
                   <Stack space={2}>
@@ -351,43 +374,35 @@ export function TranslationPanel(props: {
             ) : null}
 
             <Stack space={3}>
-              <Flex align="center" gap={2}>
-                <Box flex={1}>
-                  <Text size={1} weight="semibold">
-                    Languages
-                  </Text>
-                </Box>
-                {data.state?.projectType ? (
-                  <Badge fontSize={0}>{projectTypeLabel(data.state.projectType)}</Badge>
-                ) : null}
-              </Flex>
-              {languages.filter((option) => option.available).map((option) => {
-                const entry = progress.get(option.id)
-                const toSend = perLanguage[option.id] ?? 0
+              <Text size={1} weight="semibold">
+                Languages
+              </Text>
+              {languages.map((language) => {
+                const entry = progress.get(language.id)
+                const inProject = Boolean(projectForLanguage(projects, language.id))
+                const toSend = perLanguage[language.id] ?? 0
                 const done = entry && entry.total > 0 && entry.reviewed === entry.total
                 return (
-                  <Stack key={option.id} space={2}>
+                  <Stack key={language.id} space={2}>
                     <Flex align="center" gap={2} as="label">
                       <Checkbox
-                        checked={chosen.includes(option.id)}
-                        disabled={!option.available || running}
+                        checked={chosen.includes(language.id)}
+                        disabled={running}
                         onChange={() =>
                           setSelected((current) =>
-                            (current ?? []).includes(option.id)
-                              ? (current ?? []).filter((id) => id !== option.id)
-                              : [...(current ?? []), option.id],
+                            (current ?? []).includes(language.id)
+                              ? (current ?? []).filter((id) => id !== language.id)
+                              : [...(current ?? []), language.id],
                           )
                         }
                       />
                       <Box flex={1}>
-                        <Text size={1} muted={!option.available}>
-                          {option.title}
-                        </Text>
+                        <Text size={1}>{language.title}</Text>
                       </Box>
                       <Text size={0} muted>
-                        {!option.available
-                          ? 'Not in project'
-                          : toSend > 0 && hasProject
+                        {hasProject && !inProject
+                          ? 'Not ordered yet'
+                          : toSend > 0 && inProject
                             ? `${toSend} to send`
                             : done
                               ? 'Reviewed'
@@ -404,27 +419,45 @@ export function TranslationPanel(props: {
                   </Stack>
                 )
               })}
-              {languages.some((option) => !option.available) ? (
-                <Text size={0} muted>
-                  Not in this project:{' '}
-                  {languages
-                    .filter((option) => !option.available)
-                    .map((option) => option.title)
-                    .join(', ')}
-                  . A language cannot be added to an existing TextUnited project yet.
-                </Text>
-              ) : null}
             </Stack>
 
-            {!hasProject && allowedTypes.length > 1 ? (
+            {hasProject && !resetMode && newLanguages.length > 0 ? (
+              <Card padding={3} radius={2} tone="primary">
+                <Text size={1}>
+                  {listTitles(newLanguages)} {newLanguages.length === 1 ? 'is' : 'are'} ordered as a new
+                  TextUnited project. The current {projects.length === 1 ? 'project stays' : 'projects stay'} as{' '}
+                  {projects.length === 1 ? 'it is' : 'they are'}.
+                </Text>
+              </Card>
+            ) : null}
+
+            {resetMode ? (
+              <Card padding={3} radius={2} tone="caution">
+                <Stack space={3}>
+                  <Text size={1} weight="semibold">
+                    Start a new TextUnited project
+                  </Text>
+                  <Text size={1}>
+                    Every text of this document is sent again, for the chosen languages, to a new
+                    project. The current {projects.length === 1 ? 'project stays' : 'projects stay'} in
+                    TextUnited as {projects.length === 1 ? 'it is' : 'they are'}, but this document no
+                    longer follows {projects.length === 1 ? 'it' : 'them'}. Translations already in
+                    Sanity are kept.
+                  </Text>
+                  <Button mode="bleed" fontSize={1} text="Cancel" onClick={() => setResetMode(false)} />
+                </Stack>
+              </Card>
+            ) : null}
+
+            {needsNewProject && allowedTypes.length > 1 ? (
               <Stack space={3}>
                 <Text size={1} weight="semibold">
-                  Who translates
+                  {hasProject ? 'Who translates the new project' : 'Who translates'}
                 </Text>
                 {PROJECT_TYPE_OPTIONS.filter((option) => allowedTypes.includes(option.value)).map((option) => (
                   <Flex key={option.value} gap={2} as="label" align="flex-start">
                     <Radio
-                      checked={projectType === option.value}
+                      checked={typeForNewProject === option.value}
                       disabled={running}
                       name={`textunited-project-type-${documentId}`}
                       value={option.value}
@@ -458,22 +491,19 @@ export function TranslationPanel(props: {
 
             <Stack space={2}>
               <Button
-                tone="primary"
+                tone={resetMode ? 'caution' : 'primary'}
                 icon={TranslateIcon}
                 loading={submitting}
-                disabled={running || chosen.length === 0 || !pending || pending.texts === 0 || teamError !== null}
-                text={
-                  chosen.length === 0
-                    ? 'Choose a language'
-                    : teamError && team.length > 0
-                      ? teamError
-                      : !pending || pending.texts === 0
-                        ? 'Nothing to send'
-                        : `Send ${pending.texts === 1 ? '1 text' : `${pending.texts} texts`} to TextUnited`
+                disabled={
+                  running ||
+                  chosen.length === 0 ||
+                  teamError !== null ||
+                  (!resetMode && (!pending || pending.texts === 0))
                 }
-                onClick={() => void send('changed')}
+                text={sendLabel()}
+                onClick={() => void send('changed', resetMode)}
               />
-              {hasProject ? (
+              {hasProject && !resetMode ? (
                 <Button
                   mode="bleed"
                   fontSize={1}
@@ -481,20 +511,37 @@ export function TranslationPanel(props: {
                   onClick={() => setShowMore((value) => !value)}
                 />
               ) : null}
-              {showMore ? (
+              {showMore && !resetMode ? (
                 <Card padding={3} radius={2} border>
-                  <Stack space={3}>
-                    <Text size={1} muted>
-                      Sends every text again for the chosen languages and replaces all their
-                      translations, including ones edited by hand in Sanity.
-                    </Text>
-                    <Button
-                      mode="ghost"
-                      tone="critical"
-                      text="Retranslate everything"
-                      disabled={running || chosen.length === 0}
-                      onClick={() => void send('all')}
-                    />
+                  <Stack space={4}>
+                    <Stack space={3}>
+                      <Text size={1} muted>
+                        Sends every text again for the chosen languages and replaces all their
+                        translations, including ones edited by hand in Sanity.
+                      </Text>
+                      <Button
+                        mode="ghost"
+                        tone="critical"
+                        text="Retranslate everything"
+                        disabled={running || chosen.length === 0 || newLanguages.length > 0}
+                        onClick={() => void send('all')}
+                      />
+                    </Stack>
+                    <Stack space={3}>
+                      <Text size={1} muted>
+                        Starts over with a new TextUnited project, for example to change who
+                        translates. Every text is sent again.
+                      </Text>
+                      <Button
+                        mode="ghost"
+                        text="Start a new TextUnited project"
+                        disabled={running}
+                        onClick={() => {
+                          setResetMode(true)
+                          setShowMore(false)
+                        }}
+                      />
+                    </Stack>
                   </Stack>
                 </Card>
               ) : null}
@@ -505,6 +552,39 @@ export function TranslationPanel(props: {
               it as translators confirm them in TextUnited. Publish the document to show them on the
               site.
             </Text>
+
+            {projects.length > 1 || archived.length > 0 ? (
+              <Card borderTop paddingTop={3}>
+                <Stack space={3}>
+                  <Text size={1} weight="semibold">
+                    TextUnited projects
+                  </Text>
+                  {[...projects.map((project) => ({project, old: false})), ...archived.map((project) => ({project, old: true}))].map(
+                    ({project, old}) => {
+                      const link = linkTo(project)
+                      return (
+                        <Flex key={project.customId} gap={2} align="center">
+                          <Box flex={1}>
+                            <Text size={0} muted={old}>
+                              {listTitles(project.languages)}
+                              {project.projectType ? ` · ${projectTypeLabel(project.projectType)}` : ''}
+                              {old ? ' · replaced' : ''}
+                            </Text>
+                          </Box>
+                          {link ? (
+                            <Text size={0}>
+                              <a href={link} target="_blank" rel="noreferrer">
+                                Open
+                              </a>
+                            </Text>
+                          ) : null}
+                        </Flex>
+                      )
+                    },
+                  )}
+                </Stack>
+              </Card>
+            ) : null}
 
             {data.requests.length > 0 ? (
               <Card borderTop paddingTop={3}>

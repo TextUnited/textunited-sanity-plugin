@@ -7,7 +7,8 @@ import {
 } from 'sanity'
 
 import {getBaseDocumentId} from '../core/ids'
-import {languageProgress} from './logic'
+import {projectLanguages} from '../core/projects'
+import {languageProgress, readTranslationState} from './logic'
 import type {TextUnitedStudioOptions} from './options'
 import {badgeLabel} from './summary'
 import {TextUnitedIcon} from './TextUnitedIcon'
@@ -16,7 +17,7 @@ import {TranslationPanel} from './TranslationPanel'
 export const INSPECTOR_NAME = 'textunited-translation'
 const API_VERSION = '2025-02-19'
 
-type StateSummary = {projectLanguages?: string[]; stateJson?: string} | null
+type StateSummary = Record<string, unknown> | null
 
 /** The plugin's state of one document, followed live. */
 function useStateSummary(documentId: string): StateSummary {
@@ -27,7 +28,7 @@ function useStateSummary(documentId: string): StateSummary {
     let active = true
     const load = () =>
       client
-        .fetch<StateSummary>('*[_id == $id][0]{projectLanguages, stateJson}', {id: stateId}, {perspective: 'raw'})
+        .fetch<StateSummary>('*[_id == $id][0]{projectCustomId, projectLanguages, projectType, projectId, projectsJson, stateJson}', {id: stateId}, {perspective: 'raw'})
         .then((value) => active && setState(value))
         .catch(() => undefined)
     void load()
@@ -67,8 +68,9 @@ export function createTranslationBadge(): DocumentBadgeComponent {
   const TranslationBadge: DocumentBadgeComponent = (props) => {
     const state = useStateSummary(props.id)
     const badge = useMemo(() => {
-      if (!state?.projectLanguages?.length) return null
-      return badgeLabel(languageProgress(state.stateJson, state.projectLanguages), state.projectLanguages)
+      const {state: translationState, projects} = readTranslationState(state)
+      if (projects.length === 0) return null
+      return badgeLabel(languageProgress(translationState, projects), projectLanguages(projects))
     }, [state])
     if (!badge) return null
     return {

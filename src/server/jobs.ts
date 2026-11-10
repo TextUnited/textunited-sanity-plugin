@@ -11,7 +11,6 @@ import {
   planTranslation,
   recordBaseline,
   recordSentUnits,
-  selectedSegments,
   type TranslationMode,
   type TranslationPlan,
   type TranslationState,
@@ -21,13 +20,21 @@ import {
   type TextUnitedCapabilities,
   type TextUnitedClient,
 } from '../core/textunited/client'
-import type {ProjectResponse, ProjectTargetLanguage, ProjectTeamMember} from '../core/textunited/types'
+import type {TranslationTargets} from '../core/document/target'
+import type {ProjectRecord} from '../core/projects'
+import type {
+  ProjectResponse,
+  ProjectSegment,
+  ProjectTargetLanguage,
+  ProjectTeamMember,
+} from '../core/textunited/types'
 import {
   createMissingTranslationDocuments,
   loadState,
   loadTargets,
   saveStateMutation,
   writeTargetsMutations,
+  type StoredState,
 } from './documents'
 import {getPreferredDocument, SanityConflictError, type SanityStore} from './sanityStore'
 import {isFinalStatus, toTranslationsBySegment} from './translations'
@@ -123,6 +130,8 @@ export type JobSummary = {
   /** Sent, but TextUnited did not answer in time; their translations arrive later */
   tasksAwaitingTranslation?: string[]
   unitsSelected: number
+  /** Texts sent to TextUnited (all of them for a new project after a reset) */
+  textsSent?: number
   outcomes: Partial<Record<ApplyOutcome, number>>
   projectCreated: boolean
 }
@@ -141,9 +150,11 @@ function documentTitle(source: PlainObject, sourceLanguage: string): string {
   return typeof localized === 'string' ? localized : ''
 }
 
-function projectName(source: PlainObject, baseId: string, sourceLanguage: string): string {
+/** Name of a project; projects added later name their languages, e.g. "Pricing – JA, IT (page-1)". */
+function projectName(source: PlainObject, baseId: string, sourceLanguage: string, languages?: string[]): string {
   const title = documentTitle(source, sourceLanguage).replace(/\s+/g, ' ').trim()
-  return title ? `${title.slice(0, 180)} (${baseId})` : baseId
+  const suffix = languages?.length ? ` – ${languages.map((language) => language.toUpperCase()).join(', ')}` : ''
+  return title ? `${title.slice(0, 160)}${suffix} (${baseId})` : `${baseId}${suffix}`
 }
 
 /** Maps TextUnited instant translations to the shape `applyTranslations` reads. */
@@ -217,6 +228,7 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
   const now = context.now ?? (() => new Date())
   const baseId = getBaseDocumentId(String(request.documentId ?? ''))
   const mode = String(request.mode ?? 'missing') as TranslationMode
+  const reset = request.reset === true
   if (!baseId) throw new Error('The request has no document id')
   if (!VALID_MODES.has(mode)) throw new Error(`Unknown translation mode: ${mode}`)
 
@@ -234,18 +246,34 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
   const units = extractTranslationUnits(source, typeConfig, config)
   const loaded = await loadTargets({store: context.store, source, typeConfig, languages})
   const stored = await loadState(context.store, baseId)
-  const plan = planTranslation({units, languages, targets: loaded.targets, state: stored.state, mode})
   const baseState = recordBaseline(stored.state, units)
 
+  // A reset starts over: the current projects are archived and a new one takes the languages.
+  const activeProjects = reset ? [] : stored.projects
+  const archived = reset ? [...stored.archived, ...stored.projects] : stored.archived
+  const groups = planGroups({
+    units,
+    languages,
+    targets: loaded.targets,
+    state: baseState,
+    mode,
+    reset,
+    append: context.capabilities?.appendSegments === true,
+    projects: activeProjects,
+    newCustomId: () => projectCustomIdFor(context, baseId, activeProjects.length + archived.length),
+  })
+
+  const selectedIds = new Set(groups.flatMap((group) => group.apply.selected.map(({unit}) => unit.id)))
   const summary: JobSummary = {
-    tasksSent: plan.tasks.map((task) => task.taskId),
-    unitsSelected: plan.selected.length,
+    tasksSent: [],
+    unitsSelected: selectedIds.size,
     outcomes: {},
     projectCreated: false,
   }
-  if (plan.tasks.length === 0) {
+  summary.textsSent = new Set(groups.flatMap((group) => group.sendUnits.map((unit) => unit.id))).size
+  if (groups.every((group) => group.sendUnits.length === 0)) {
     try {
-      const pending = hasPendingTranslations(baseState, stored.projectLanguages ?? [], isFinalStatus)
+      const pending = hasPendingTranslations(baseState, stored.projects, isFinalStatus)
       await context.store.mutate([saveStateMutation(baseId, {...stored, state: baseState}, pending)])
     } catch (error) {
       // The baseline is only a convenience; a concurrent save already holds a newer state.
@@ -255,103 +283,189 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
   }
 
   await assertKnownLanguageCodes(context, languages)
+  const eventUrl = await context.eventUrl(baseId)
+  const sentAt = now().toISOString()
+  const isFirst = activeProjects.length === 0 && archived.length === 0
 
+  // Each project is sent to separately; they do not depend on each other.
+  const results = await Promise.all(
+    groups
+      .filter((group) => group.sendUnits.length > 0)
+      .map((group) => sendToProject({context, request, group, source, baseId, eventUrl, newId, now, isFirst})),
+  )
+
+  let sentState = baseState
+  const projects = [...activeProjects]
+  const responses: ProjectResponse[] = []
+  for (const result of results) {
+    responses.push(...result.responses)
+    summary.tasksSent.push(...result.tasksSent)
+    if (result.awaiting.length > 0) {
+      summary.tasksAwaitingTranslation = [...(summary.tasksAwaitingTranslation ?? []), ...result.awaiting]
+    }
+    if (result.created) summary.projectCreated = true
+    const index = projects.findIndex((project) => project.customId === result.project.customId)
+    if (index >= 0) projects[index] = result.project
+    else projects.push(result.project)
+    for (const sent of result.sent) {
+      sentState = recordSentUnits(sentState, sent.units, sentAt, sent.taskId, result.project.customId)
+    }
+  }
+
+  // Only selected units take the instant (machine) translation; in replace mode other units of
+  // the same tasks were resent only because the API replaces whole tasks. A translation of an
+  // edited source no longer fits, so it is replaced even if edited by hand; so is every value in
+  // `all` mode.
+  const selected = new Map<string, TranslationUnit>()
+  const overwrite = new Set<string>()
+  for (const group of groups) {
+    for (const {unit, reason} of group.apply.selected) {
+      selected.set(unit.id, unit)
+      if (mode === 'all' || reason === 'sourceChanged') overwrite.add(unit.id)
+    }
+  }
+
+  return finishRequest({
+    context,
+    source,
+    typeConfig,
+    loaded,
+    languages,
+    units,
+    stored,
+    baseId,
+    newId,
+    summary,
+    selectedUnits: [...selected.values()],
+    overwrite,
+    responses,
+    sentState,
+    projects,
+    archived,
+  })
+}
+
+/** One TextUnited project a request sends to, with what it sends and what it applies. */
+type SendGroup = {
+  project: ProjectRecord
+  /** Requested languages that belong to this project */
+  languages: string[]
+  /** Units whose instant translation is written, and why they were chosen */
+  apply: TranslationPlan
+  /** What is sent: whole parts in replace mode; every text for a new project after a reset */
+  sendPlan: TranslationPlan
+  sendUnits: TranslationUnit[]
+}
+
+/**
+ * Splits a request by project: requested languages of an existing project go to that project;
+ * languages in no project go together to one new project.
+ */
+function planGroups(args: {
+  units: TranslationUnit[]
+  languages: string[]
+  targets: TranslationTargets
+  state: TranslationState
+  mode: TranslationMode
+  reset: boolean
+  /** Append mode sends the selected texts; replace mode sends whole parts (tasks) */
+  append: boolean
+  projects: ProjectRecord[]
+  newCustomId: () => string
+}): SendGroup[] {
+  const groups: SendGroup[] = []
+  const plan = (languages: string[], projectCustomId: string | undefined, mode: TranslationMode) =>
+    planTranslation({units: args.units, languages, targets: args.targets, state: args.state, mode, projectCustomId})
+  const unitsToSend = (sendPlan: TranslationPlan) => {
+    if (args.append) return sendPlan.selected.map(({unit}) => unit)
+    const taskIds = new Set(sendPlan.tasks.map((task) => task.taskId))
+    return args.units.filter((unit) => taskIds.has(unit.taskId))
+  }
+
+  for (const project of args.projects) {
+    const languages = args.languages.filter((language) => project.languages.includes(language))
+    if (languages.length === 0) continue
+    const apply = plan(languages, project.customId, args.mode)
+    groups.push({project, languages, apply, sendPlan: apply, sendUnits: unitsToSend(apply)})
+  }
+
+  const covered = new Set(args.projects.flatMap((project) => project.languages))
+  const newLanguages = args.languages.filter((language) => !covered.has(language))
+  if (newLanguages.length > 0) {
+    const project: ProjectRecord = {customId: args.newCustomId(), languages: newLanguages}
+    const apply = plan(newLanguages, undefined, args.mode)
+    // After a reset the new project receives every text, so it holds the whole document.
+    const sendPlan = args.reset ? plan(newLanguages, undefined, 'all') : apply
+    groups.push({project, languages: newLanguages, apply, sendPlan, sendUnits: unitsToSend(sendPlan)})
+  }
+  return groups
+}
+
+/** Custom id of a document's next project: the plain id for the first, then `-2`, `-3`… */
+function projectCustomIdFor(context: JobContext, baseId: string, existingCount: number): string {
   const customId = createProjectCustomId({
     sanityProjectId: context.sanityProjectId,
     dataset: context.dataset,
     documentId: baseId,
   })
-  const eventUrl = await context.eventUrl(baseId)
-  const codeOf = new Map(config.targetLanguages.map((language) => [language.id, language.textUnitedCode]))
-  const responses: ProjectResponse[] = []
-  let tasks = plan.tasks
-  let projectLanguages = stored.projectLanguages
-  let projectType = stored.projectType
-  let projectId = stored.projectId
+  return existingCount === 0 ? customId : `${customId}-${existingCount + 1}`
+}
 
-  const awaiting: string[] = []
-  const existing = await context.textUnited.getProject(customId)
-  if (typeof existing?.id === 'number') projectId = existing.id
-  if (context.capabilities?.appendSegments) {
-    // Append mode: only the selected texts go out, as one new task, and nothing already in the
-    // project is replaced. The task id is new on every request, as the API requires.
-    let taskId = existing ? appendTaskId(now(), newId) : 'content'
-    const segments = selectedSegments(plan)
-    if (!existing) {
-      const chosen = projectSettingsFor(request, context)
-      projectType = chosen.projectType
-      const created = await context.textUnited
-        .createProject({
-          customId,
-          taskId,
-          name: projectName(source, baseId, config.sourceLanguage.id),
-          sourceLanguageCode: config.sourceLanguage.textUnitedCode,
-          targetLanguages: languages.map((language) => ({
-            ...chosen.settings,
-            targetLanguageCode: codeOf.get(language) as string,
-          })),
-          segments,
-          instantTranslation: true,
-          eventUrl,
-          referenceNumber: baseId,
-        })
-        .catch(async (error: unknown) => {
-          // The project may have been created even though the answer never came.
-          if (error instanceof TextUnitedTimeoutError && (await context.textUnited.getProject(customId))) {
-            awaiting.push(taskId)
-            return null
-          }
-          throw error
-        })
-      if (created) {
-        responses.push(created)
-        if (typeof created.id === 'number') projectId = created.id
-      }
-      summary.projectCreated = true
-      projectLanguages = languages
-    } else {
-      assertProjectLanguages(existing, languages, codeOf)
-      projectLanguages ??= languages
-      try {
-        const response = await context.textUnited.appendTask({customId, taskId, segments, eventUrl})
-        if (response.taskId) taskId = response.taskId
-        responses.push(response)
-      } catch (error) {
-        // The task may have been added even though the answer never came; if it was, its
-        // translations arrive through notifications or the periodic check.
-        if (!(error instanceof TextUnitedTimeoutError)) throw error
-        awaiting.push(taskId)
-      }
-    }
-    summary.tasksSent = [taskId]
-    if (awaiting.length > 0) summary.tasksAwaitingTranslation = awaiting
-    const sentUnits = plan.selected.map(({unit}) => unit)
-    return finishRequest({
-      context, request, mode, plan, source, typeConfig, loaded, languages, units, stored, baseState,
-      baseId, customId, projectLanguages, projectType, projectId, responses, summary, newId,
-      sentState: recordSentUnits(baseState, sentUnits, now().toISOString(), taskId),
-    })
+type SendResult = {
+  project: ProjectRecord
+  created: boolean
+  responses: ProjectResponse[]
+  tasksSent: string[]
+  awaiting: string[]
+  /** Units sent, with the task holding them (append mode) */
+  sent: Array<{units: TranslationUnit[]; taskId?: string}>
+}
+
+/** Creates or updates one TextUnited project. */
+async function sendToProject(args: {
+  context: JobContext
+  request: PlainObject
+  group: SendGroup
+  source: PlainObject
+  baseId: string
+  eventUrl: string | undefined
+  newId: () => string
+  now: () => Date
+  /** The document's first project ever: its name has no language suffix */
+  isFirst: boolean
+}): Promise<SendResult> {
+  const {context, request, group, source, baseId, eventUrl, newId, now} = args
+  const {config} = context
+  const codeOf = new Map(config.targetLanguages.map((language) => [language.id, language.textUnitedCode]))
+  const customId = group.project.customId
+  const result: SendResult = {
+    project: {...group.project},
+    created: false,
+    responses: [],
+    tasksSent: [],
+    awaiting: [],
+    sent: [],
   }
-  if (!existing) {
+
+  const existing = await context.textUnited.getProject(customId)
+  if (typeof existing?.id === 'number') result.project.projectId = existing.id
+  if (existing) assertProjectLanguages(existing, group.languages, codeOf)
+
+  const create = async (taskId: string, segments: ProjectSegment[]) => {
     const chosen = projectSettingsFor(request, context)
-    projectType = chosen.projectType
-    // The create call handles formatted (HTML) segments reliably, while an update with instant
-    // translation may not answer for them, so a task with formatted text goes first.
-    const formatted = tasks.findIndex((task) => task.segments.some((s) => s.content.includes('data-tu-id')))
-    if (formatted > 0) tasks = [tasks[formatted]!, ...tasks.filter((_, index) => index !== formatted)]
-    const [first, ...rest] = tasks
-    if (!first) return summary
+    result.project.projectType = chosen.projectType
+    result.project.createdAt = now().toISOString()
     const created = await context.textUnited
       .createProject({
         customId,
-        taskId: first.taskId,
-        name: projectName(source, baseId, config.sourceLanguage.id),
+        taskId,
+        name: projectName(source, baseId, config.sourceLanguage.id, args.isFirst ? undefined : group.project.languages),
         sourceLanguageCode: config.sourceLanguage.textUnitedCode,
-        targetLanguages: languages.map((language) => ({
+        targetLanguages: group.project.languages.map((language) => ({
           ...chosen.settings,
           targetLanguageCode: codeOf.get(language) as string,
         })),
-        segments: first.segments,
+        segments,
         instantTranslation: true,
         eventUrl,
         referenceNumber: baseId,
@@ -359,43 +473,70 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
       .catch(async (error: unknown) => {
         // The project may have been created even though the answer never came.
         if (error instanceof TextUnitedTimeoutError && (await context.textUnited.getProject(customId))) {
-          awaiting.push(first.taskId)
+          result.awaiting.push(taskId)
           return null
         }
         throw error
       })
     if (created) {
-        responses.push(created)
-        if (typeof created.id === 'number') projectId = created.id
-      }
-    summary.projectCreated = true
-    projectLanguages = languages
-    tasks = rest
-  } else {
-    assertProjectLanguages(existing, languages, codeOf)
-    projectLanguages ??= languages
+      result.responses.push(created)
+      if (typeof created.id === 'number') result.project.projectId = created.id
+    }
+    result.created = true
   }
 
+  if (context.capabilities?.appendSegments) {
+    // Append mode: the chosen texts go out as one new task; nothing in the project is replaced.
+    const segments = group.sendUnits.flatMap((unit) => unit.segments.map((segment) => ({...segment})))
+    let taskId = existing ? appendTaskId(now(), newId) : 'content'
+    if (!existing) {
+      await create(taskId, segments)
+    } else {
+      try {
+        const response = await context.textUnited.appendTask({customId, taskId, segments, eventUrl})
+        if (response.taskId) taskId = response.taskId
+        result.responses.push(response)
+      } catch (error) {
+        // The task may have been added even though the answer never came; if it was, its
+        // translations arrive through notifications or the periodic check.
+        if (!(error instanceof TextUnitedTimeoutError)) throw error
+        result.awaiting.push(taskId)
+      }
+    }
+    result.tasksSent.push(taskId)
+    result.sent.push({units: group.sendUnits, taskId})
+    return result
+  }
+
+  // Replace mode: each changed part of the document is its own task, sent complete.
+  let tasks = group.sendPlan.tasks
+  if (!existing) {
+    // The create call handles formatted (HTML) segments reliably, while an update with instant
+    // translation may not answer for them, so a task with formatted text goes first.
+    const formatted = tasks.findIndex((task) => task.segments.some((s) => s.content.includes('data-tu-id')))
+    if (formatted > 0) tasks = [tasks[formatted]!, ...tasks.filter((_, index) => index !== formatted)]
+    const [first, ...rest] = tasks
+    if (first) {
+      await create(first.taskId, first.segments)
+      result.tasksSent.push(first.taskId)
+    }
+    tasks = rest
+  }
   for (const task of tasks) {
     try {
-      responses.push(
+      result.responses.push(
         await context.textUnited.replaceTask({customId, taskId: task.taskId, segments: task.segments, eventUrl}),
       )
     } catch (error) {
       // An update stores the segments before TextUnited prepares the instant translation, so a
       // missing answer still means the task was sent; its translations arrive later.
       if (!(error instanceof TextUnitedTimeoutError)) throw error
-      awaiting.push(task.taskId)
+      result.awaiting.push(task.taskId)
     }
+    result.tasksSent.push(task.taskId)
   }
-  if (awaiting.length > 0) summary.tasksAwaitingTranslation = awaiting
-
-  return finishRequest({
-    context, request, mode, plan, source, typeConfig, loaded, languages, units, stored, baseState,
-    baseId, customId, projectLanguages, projectType, projectId, responses, summary, newId,
-    // Every unit of a sent task was sent, since the API replaces whole tasks.
-    sentState: recordSentUnits(baseState, units.filter((unit) => summary.tasksSent.includes(unit.taskId))),
-  })
+  result.sent.push({units: group.sendUnits})
+  return result
 }
 
 function appendTaskId(date: Date, newId: () => string): string {
@@ -451,39 +592,24 @@ function assertProjectLanguages(
 /** Writes the instant translations to the drafts and saves the plugin's state. */
 async function finishRequest(args: {
   context: JobContext
-  request: PlainObject
-  mode: TranslationMode
-  plan: TranslationPlan
   source: PlainObject
   typeConfig: DocumentTypeConfig
   loaded: Awaited<ReturnType<typeof loadTargets>>
   languages: string[]
   units: TranslationUnit[]
-  stored: Awaited<ReturnType<typeof loadState>>
-  baseState: TranslationState
+  stored: StoredState
   baseId: string
-  customId: string
-  projectLanguages: string[] | undefined
-  projectType: ProjectType | undefined
-  projectId: number | undefined
-  responses: ProjectResponse[]
-  summary: JobSummary
   newId: () => string
+  summary: JobSummary
+  selectedUnits: TranslationUnit[]
+  overwrite: ReadonlySet<string>
+  responses: ProjectResponse[]
   sentState: TranslationState
+  projects: ProjectRecord[]
+  archived: ProjectRecord[]
 }): Promise<JobSummary> {
-  const {context, mode, plan, source, typeConfig, loaded, languages, units, stored, baseId, customId} = args
-  const {projectLanguages, projectType, projectId, responses, summary, newId} = args
+  const {context, source, typeConfig, loaded, languages, units, stored, baseId, newId, summary} = args
   const {config} = context
-  // Only the selected units take the instant (machine) translation. Other units in the same tasks
-  // were resent only because the API replaces whole tasks; their translations stay as they are.
-  const selectedUnits = plan.selected.map(({unit}) => unit)
-  // A translation of an edited source no longer matches it, so it is replaced even if it was
-  // edited by hand. In `all` mode every selected value is replaced.
-  const overwrite = new Set(
-    plan.selected
-      .filter(({reason}) => mode === 'all' || reason === 'sourceChanged')
-      .map(({unit}) => unit.id),
-  )
   const createdLanguages = createMissingTranslationDocuments({
     targets: loaded.targets,
     source,
@@ -492,14 +618,14 @@ async function finishRequest(args: {
     newId,
   })
   const applied = applyTranslations({
-    units: selectedUnits,
+    units: args.selectedUnits,
     languages,
     sourceLanguage: config.sourceLanguage.id,
     sourceDocument: source,
     targets: loaded.targets,
-    translations: collectInstantTranslations(responses, config),
+    translations: collectInstantTranslations(args.responses, config),
     state: args.sentState,
-    overwrite,
+    overwrite: args.overwrite,
   })
   summary.outcomes = countOutcomes(applied.outcomes)
 
@@ -517,14 +643,13 @@ async function finishRequest(args: {
   let current = stored
   for (let attempt = 1; ; attempt += 1) {
     const state = mergeState(current.state, applied.state, touchedUnits)
-    const languagesNow = projectLanguages ?? []
     try {
       await context.store.mutate([
         ...targetMutations,
         saveStateMutation(
           baseId,
-          {state, projectCustomId: customId, projectLanguages, projectType, projectId, revision: current.revision},
-          hasPendingTranslations(state, languagesNow, isFinalStatus),
+          {state, projects: args.projects, archived: args.archived, revision: current.revision},
+          hasPendingTranslations(state, args.projects, isFinalStatus),
         ),
       ])
       return summary

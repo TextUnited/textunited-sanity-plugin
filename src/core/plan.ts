@@ -21,12 +21,50 @@ export type UnitState = {
   /** When the unit was last sent; absent for a baseline of a value never sent */
   sentAt?: string
   /**
-   * TextUnited task the unit was last sent in, when updates add new tasks (append mode). The
-   * same segment may then exist in several tasks; only this one holds the current source.
+   * Legacy (single project): TextUnited task the unit was last sent in. Moved into `projects` by
+   * `migrateLegacyState`.
    */
   taskId?: string
+  /**
+   * Per TextUnited project (custom id): what was last sent there. A document can have several
+   * projects (languages added later get their own), and each holds its own version of the text.
+   * `taskId` is the task holding the current copy, when updates add new tasks (append mode).
+   */
+  projects?: Record<string, SentRecord>
   /** Per Sanity language id: hash of the value the plugin last wrote, and its TextUnited status */
   languages: Record<string, {appliedHash: string; status?: string}>
+}
+
+export type SentRecord = {sourceHash: string; sentAt: string; taskId?: string}
+
+/** What was last sent of a unit to one TextUnited project, if anything. */
+export function sentRecord(record: UnitState | undefined, projectCustomId: string): SentRecord | undefined {
+  return record?.projects?.[projectCustomId]
+}
+
+/**
+ * States written before documents could have several projects keep the sent source and task on
+ * the unit itself. They belong to the document's first project; move them there.
+ */
+export function migrateLegacyState(state: TranslationState, legacyProjectCustomId: string | undefined): TranslationState {
+  if (!legacyProjectCustomId) return state
+  let changed = false
+  const units: Record<string, UnitState> = {}
+  for (const [id, record] of Object.entries(state.units)) {
+    if (record.sentAt && !record.projects) {
+      const {taskId, ...rest} = record
+      units[id] = {
+        ...rest,
+        projects: {
+          [legacyProjectCustomId]: {sourceHash: record.sourceHash, sentAt: record.sentAt, ...(taskId ? {taskId} : {})},
+        },
+      }
+      changed = true
+    } else {
+      units[id] = record
+    }
+  }
+  return changed ? {units} : state
 }
 
 export function emptyState(): TranslationState {
@@ -56,6 +94,7 @@ function selectionReason(
   targets: TranslationTargets,
   state: TranslationState,
   mode: TranslationMode,
+  projectCustomId?: string,
 ): UnitSelectionReason | null {
   if (mode === 'all') return 'all'
   if (languages.some((language) => isMissingValue(unit, readTargetValue(unit, language, targets)))) {
@@ -63,8 +102,10 @@ function selectionReason(
   }
   // Without a record the unit was never sent by this plugin (e.g. translated by hand or by an
   // older mechanism), so there is nothing to compare: it is not treated as changed.
+  // With a project, the text sent to that project counts; otherwise the last one sent anywhere.
   const record = state.units[unit.id]
-  if (mode === 'changed' && record && record.sourceHash !== unit.sourceHash) return 'sourceChanged'
+  const sentHash = (projectCustomId ? sentRecord(record, projectCustomId)?.sourceHash : undefined) ?? record?.sourceHash
+  if (mode === 'changed' && sentHash !== undefined && sentHash !== unit.sourceHash) return 'sourceChanged'
   return null
 }
 
@@ -78,10 +119,12 @@ export function planTranslation(args: {
   targets: TranslationTargets
   state: TranslationState
   mode: TranslationMode
+  /** The TextUnited project the languages belong to; "changed" compares with what it was sent */
+  projectCustomId?: string
 }): TranslationPlan {
   const selected: TranslationPlan['selected'] = []
   for (const unit of args.units) {
-    const reason = selectionReason(unit, args.languages, args.targets, args.state, args.mode)
+    const reason = selectionReason(unit, args.languages, args.targets, args.state, args.mode, args.projectCustomId)
     if (reason) selected.push({unit, reason})
   }
 
@@ -109,21 +152,37 @@ export function recordBaseline(state: TranslationState, units: TranslationUnit[]
   return next
 }
 
-/** Records the source hashes of the units that were just sent. */
+/**
+ * Records the source of the units that were just sent. With a project, the record is kept per
+ * project (with the task holding the copy, in append mode); the unit-level hash is the latest sent.
+ */
 export function recordSentUnits(
   state: TranslationState,
   units: TranslationUnit[],
   sentAt = new Date().toISOString(),
-  /** The TextUnited task of the units, in append mode */
   taskId?: string,
+  projectCustomId?: string,
 ): TranslationState {
   const next: TranslationState = {units: {...state.units}}
   for (const unit of units) {
-    next.units[unit.id] = {
-      sourceHash: unit.sourceHash,
-      sentAt,
-      ...(taskId ? {taskId} : {}),
-      languages: next.units[unit.id]?.languages ?? {},
+    const previous = next.units[unit.id]
+    if (projectCustomId) {
+      next.units[unit.id] = {
+        sourceHash: unit.sourceHash,
+        sentAt,
+        projects: {
+          ...previous?.projects,
+          [projectCustomId]: {sourceHash: unit.sourceHash, sentAt, ...(taskId ? {taskId} : {})},
+        },
+        languages: previous?.languages ?? {},
+      }
+    } else {
+      next.units[unit.id] = {
+        sourceHash: unit.sourceHash,
+        sentAt,
+        ...(taskId ? {taskId} : {}),
+        languages: previous?.languages ?? {},
+      }
     }
   }
   return next
@@ -144,17 +203,19 @@ export function mergeState(
 }
 
 /**
- * True while TextUnited may still change a sent translation: some sent unit has, in some
- * project language, no translation yet or one that is not final.
+ * True while TextUnited may still change a sent translation: some unit sent to a project has, in
+ * one of that project's languages, no translation yet or one that is not final.
  */
 export function hasPendingTranslations(
   state: TranslationState,
-  languages: string[],
+  projects: Array<{customId: string; languages: string[]}>,
   isFinal: (status: string | undefined) => boolean,
 ): boolean {
-  return Object.values(state.units).some(
-    (record) =>
-      record.sentAt !== undefined &&
-      languages.some((language) => !isFinal(record.languages[language]?.status)),
+  return Object.values(state.units).some((record) =>
+    projects.some(
+      (project) =>
+        sentRecord(record, project.customId) !== undefined &&
+        project.languages.some((language) => !isFinal(record.languages[language]?.status)),
+    ),
   )
 }

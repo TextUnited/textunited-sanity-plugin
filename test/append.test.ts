@@ -48,6 +48,16 @@ function setup(documents: PlainObject[], fakeOptions: {hangOnPutTask?: string} =
     )
     return (await response.json()) as Record<string, any>
   }
+  const post = async (requestId: string) => {
+    const response = await handle(
+      new Request('https://www.example.com/api/textunited/jobs', {
+        method: 'POST',
+        headers: {origin: STUDIO},
+        body: JSON.stringify({requestId}),
+      }),
+    )
+    return (await response.json()) as Record<string, any>
+  }
   const notify = async () => {
     const sig = await signDocumentId('test-secret', 'page1')
     const response = await handle(new Request(`https://www.example.com/api/textunited/events?doc=page1&sig=${sig}`))
@@ -64,10 +74,11 @@ function setup(documents: PlainObject[], fakeOptions: {hangOnPutTask?: string} =
     await store.mutate([{createOrReplace: draft}])
   }
   const draftValue = (path: Parameters<typeof getAtPath>[1]) => getAtPath(store.documents.get('drafts.page1'), path)
+  // What was sent of a unit to the page's project (task, source)
   const unitState = (unitId: string) =>
-    JSON.parse(String(store.documents.get('textunited.state.page1')?.stateJson)).units[unitId]
+    JSON.parse(String(store.documents.get('textunited.state.page1')?.stateJson)).units[unitId]?.projects?.[PROJECT]
   const puts = () => textUnited.calls.filter((call) => call.method === 'PUT')
-  return {store, textUnited, requestTranslation, notify, segmentId, editHeading, draftValue, unitState, puts}
+  return {store, textUnited, requestTranslation, post, notify, segmentId, editHeading, draftValue, unitState, puts}
 }
 
 describe('append mode (PUT with appendContent)', () => {
@@ -151,5 +162,82 @@ describe('append mode (PUT with appendContent)', () => {
     t.textUnited.review(PROJECT, t.segmentId(HEADING), 'de-de', 'Übersetzen mit voller Kontrolle', 'proofread', taskId)
     await t.notify()
     expect(t.draftValue([...HEADING_DE])).toBe('Übersetzen mit voller Kontrolle')
+  })
+})
+
+describe('several projects per document', () => {
+  const SECOND = `${PROJECT}-2`
+  const projectsOf = (t: ReturnType<typeof setup>) =>
+    JSON.parse(String(t.store.documents.get('textunited.state.page1')?.projectsJson))
+
+  it('sends a changed text to every project that has a requested language', async () => {
+    const t = setup([{...makePage(), _id: 'page1'}])
+    await t.requestTranslation(['de'])
+    await t.requestTranslation(['fr'])
+    expect(projectsOf(t).projects.map((p: any) => p.customId)).toEqual([PROJECT, SECOND])
+
+    await t.editHeading('Translate with full control')
+    const body = await t.requestTranslation(['de', 'fr'], 'changed')
+    expect(body.status).toBe('done')
+    const appends = t.puts()
+    expect(appends.map((call) => call.body!.customId).sort()).toEqual([PROJECT, SECOND])
+    for (const call of appends) {
+      expect(call.body!.segments).toEqual([{customId: t.segmentId(HEADING), content: 'Translate with full control'}])
+    }
+    expect(t.draftValue([...HEADING_DE])).toBe('de:Translate with full control')
+    expect(
+      t.draftValue(['sections', {_key: 's1'}, 'heading', {_key: 'fr'}, 'value']),
+    ).toBe('fr:Translate with full control')
+  })
+
+  it('reads reviewed translations from each project', async () => {
+    const t = setup([{...makePage(), _id: 'page1'}])
+    await t.requestTranslation(['de'])
+    await t.requestTranslation(['fr'])
+    t.textUnited.review(SECOND, t.segmentId(HEADING), 'fr-fr', 'Traduire avec contrôle')
+    t.textUnited.review(PROJECT, t.segmentId(HEADING), 'de-de', 'Übersetzen mit Kontrolle')
+    const body = await t.notify()
+    expect(body.outcomes.applied).toBe(2)
+    expect(t.draftValue([...HEADING_DE])).toBe('Übersetzen mit Kontrolle')
+    expect(t.draftValue(['sections', {_key: 's1'}, 'heading', {_key: 'fr'}, 'value'])).toBe('Traduire avec contrôle')
+  })
+
+  it('starts over with a new project on reset and keeps the old ones as archived', async () => {
+    const t = setup([{...makePage(), _id: 'page1'}])
+    await t.requestTranslation(['de'])
+    await t.requestTranslation(['fr'])
+    // a translator's work in the German project, kept in Sanity
+    t.textUnited.review(PROJECT, t.segmentId(HEADING), 'de-de', 'Übersetzen mit Kontrolle')
+    await t.notify()
+
+    await t.store.mutate([
+      {
+        create: {
+          _id: 'textunited.request.reset',
+          _type: 'textunited.translationRequest',
+          documentId: 'page1',
+          languages: ['de', 'fr'],
+          mode: 'changed',
+          reset: true,
+          status: 'queued',
+        },
+      },
+    ])
+    const before = t.textUnited.calls.length
+    const result = await t.post('textunited.request.reset')
+    expect(result.status).toBe('done')
+    // every text is sent, though none needed a new machine translation
+    expect(result.summary.textsSent).toBe(5)
+    const created = t.textUnited.calls.slice(before).find((call) => call.method === 'POST')!
+    expect(created.body!.customId).toBe(`${PROJECT}-3`)
+    // the new project receives the whole document, for both languages
+    expect((created.body!.segments as unknown[]).length).toBe(5)
+    expect((created.body!.targetLanguages as unknown[]).length).toBe(2)
+
+    const {projects, archived} = projectsOf(t)
+    expect(projects.map((p: any) => [p.customId, p.languages])).toEqual([[`${PROJECT}-3`, ['de', 'fr']]])
+    expect(archived.map((p: any) => p.customId)).toEqual([PROJECT, SECOND])
+    // the reviewed German translation stays in the draft
+    expect(t.draftValue([...HEADING_DE])).toBe('Übersetzen mit Kontrolle')
   })
 })

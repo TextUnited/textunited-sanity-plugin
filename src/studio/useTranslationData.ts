@@ -6,10 +6,11 @@ import {extractTranslationUnits, type TranslationUnit} from '../core/document/ex
 import type {PlainObject} from '../core/document/paths'
 import type {TranslationTargets} from '../core/document/target'
 import {getBaseDocumentId} from '../core/ids'
-import {emptyState, type TranslationState} from '../core/plan'
+import type {TranslationState} from '../core/plan'
+import type {ProjectRecord} from '../core/projects'
 import {loadTargets} from '../server/documents'
 import type {SanityStore} from '../server/sanityStore'
-import type {TranslationStatusData} from './logic'
+import {readTranslationState, type TranslationStatusData} from './logic'
 import type {TextUnitedStudioOptions} from './options'
 
 const API_VERSION = '2025-02-19'
@@ -21,6 +22,9 @@ export type TranslationData = {
   error: string | null
   state: TranslationStatusData['state']
   translationState: TranslationState
+  /** The document's TextUnited projects, and the ones a reset replaced */
+  projects: ProjectRecord[]
+  archived: ProjectRecord[]
   requests: RequestRecord[]
   source: PlainObject | null
   units: TranslationUnit[]
@@ -29,18 +33,11 @@ export type TranslationData = {
 }
 
 const STATUS_QUERY = `{
-  "state": *[_id == $stateId][0]{projectCustomId, projectLanguages, projectType, projectId, stateJson, pending, updatedAt},
+  "state": *[_id == $stateId][0]{projectCustomId, projectLanguages, projectType, projectId, projectsJson, stateJson, pending, updatedAt},
   "requests": *[_type == "textunited.translationRequest" && documentId == $documentId]
     | order(_createdAt desc)[0...5]{_id, _createdAt, status, error, summaryJson, languages, mode}
 }`
 
-function parseState(stateJson: string | undefined): TranslationState {
-  try {
-    return stateJson ? (JSON.parse(stateJson) as TranslationState) : emptyState()
-  } catch {
-    return emptyState()
-  }
-}
 
 /**
  * Everything the translation panel shows for one document, kept up to date: the plugin's state
@@ -139,11 +136,14 @@ export function useTranslationData(
       ? {model: 'fieldLevel', document: source}
       : documentLevelTargets
 
+  const read = useMemo(() => readTranslationState(status?.state ?? null), [status?.state])
   return {
     loading: !status && !error,
     error,
     state: status?.state ?? null,
-    translationState: parseState(status?.state?.stateJson),
+    translationState: read.state,
+    projects: read.projects,
+    archived: read.archived,
     requests: status?.requests ?? [],
     source,
     units,

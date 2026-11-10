@@ -3,7 +3,8 @@ import {cloneValue, isPlainObject, type PlainObject} from '../core/document/path
 import {slugify} from '../core/document/slug'
 import type {TranslationTargets} from '../core/document/target'
 import {getBaseDocumentId} from '../core/ids'
-import {emptyState, type TranslationState} from '../core/plan'
+import {emptyState, migrateLegacyState, type TranslationState} from '../core/plan'
+import {projectLanguages, readProjects, type ProjectRecord} from '../core/projects'
 import {getPreferredDocument, type Mutation, type SanityStore} from './sanityStore'
 
 /** Types of the documents this package keeps in Sanity. Their ids contain a dot, so they are private. */
@@ -24,19 +25,17 @@ function withoutSystemFields(document: PlainObject): PlainObject {
 
 export type StoredState = {
   state: TranslationState
-  projectCustomId?: string
-  projectLanguages?: string[]
-  /** `outsourced` (TextUnited assigns the team) or `inHouse` (the company's own team) */
-  projectType?: 'outsourced' | 'inHouse'
-  /** Numeric id of the TextUnited project, for links to the TextUnited portal */
-  projectId?: number
+  /** The document's TextUnited projects; each language belongs to one of them */
+  projects: ProjectRecord[]
+  /** Projects replaced by a reset; kept for reference */
+  archived: ProjectRecord[]
   /** Revision of the state document when it was read; absent when it does not exist yet */
   revision?: string
 }
 
 export async function loadState(store: SanityStore, baseDocumentId: string): Promise<StoredState> {
   const document = await store.getDocument(stateDocumentId(baseDocumentId))
-  if (!document) return {state: emptyState()}
+  if (!document) return {state: emptyState(), projects: [], archived: []}
   const revision = typeof document._rev === 'string' ? document._rev : undefined
   let state = emptyState()
   try {
@@ -44,37 +43,30 @@ export async function loadState(store: SanityStore, baseDocumentId: string): Pro
   } catch {
     // A damaged state only means translations are treated as not written by the plugin.
   }
-  return {
-    state,
-    revision,
-    projectCustomId: typeof document.projectCustomId === 'string' ? document.projectCustomId : undefined,
-    projectLanguages: Array.isArray(document.projectLanguages)
-      ? (document.projectLanguages as string[])
-      : undefined,
-    projectType:
-      document.projectType === 'inHouse' || document.projectType === 'outsourced'
-        ? document.projectType
-        : undefined,
-    projectId: typeof document.projectId === 'number' ? document.projectId : undefined,
-  }
+  const {projects, archived} = readProjects(document)
+  // States from before several projects keep what was sent on the unit: it belongs to the first.
+  if (typeof document.projectsJson !== 'string') state = migrateLegacyState(state, projects[0]?.customId)
+  return {state, revision, projects, archived}
 }
 
 /**
  * Saves the state, but only if nobody saved it since it was read (TextUnited may send several
  * notifications at once). A conflict surfaces as SanityConflictError; the caller re-reads and
- * retries.
+ * retries. The single-project fields are kept too, for readers of the older format.
  */
 export function saveStateMutation(
   baseDocumentId: string,
   stored: StoredState,
   pending: boolean,
 ): Mutation {
+  const first = stored.projects[0]
   const fields = {
     documentId: baseDocumentId,
-    projectCustomId: stored.projectCustomId,
-    projectLanguages: stored.projectLanguages,
-    projectType: stored.projectType,
-    projectId: stored.projectId,
+    projectsJson: JSON.stringify({projects: stored.projects, archived: stored.archived}),
+    projectCustomId: first?.customId,
+    projectLanguages: projectLanguages(stored.projects),
+    projectType: first?.projectType,
+    projectId: first?.projectId,
     stateJson: JSON.stringify(stored.state),
     pending,
     updatedAt: new Date().toISOString(),

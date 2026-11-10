@@ -1,15 +1,24 @@
-import type {TranslationConfig, TranslationLanguage} from '../core/config'
-import type {TranslationMode} from '../core/plan'
+import type {TranslationConfig} from '../core/config'
+import {
+  emptyState,
+  migrateLegacyState,
+  sentRecord,
+  type TranslationMode,
+  type TranslationState,
+} from '../core/plan'
+import {readProjects, type ProjectRecord} from '../core/projects'
+
+export type {ProjectType} from '../core/projects'
+import type {ProjectType} from '../core/projects'
 
 /** What the Studio reads to show the translation status of a document. */
-export type ProjectType = 'outsourced' | 'inHouse'
-
 export type TranslationStatusData = {
   state: {
     projectCustomId?: string
     projectLanguages?: string[]
     projectType?: ProjectType
     projectId?: number
+    projectsJson?: string
     stateJson?: string
     pending?: boolean
     updatedAt?: string
@@ -72,29 +81,24 @@ export function teamForRequest(team: TeamChoice[]) {
     }))
 }
 
-export type LanguageOption = TranslationLanguage & {
-  /** False when the language cannot be requested */
-  available: boolean
-  /** Why the language is unavailable */
-  note?: string
+/** The plugin's state of one document as the Studio reads it: sent texts and projects. */
+export type DocumentTranslationState = {
+  state: TranslationState
+  projects: ProjectRecord[]
+  archived: ProjectRecord[]
 }
 
-/**
- * Which languages an editor can pick. While the TextUnited API cannot add a language to an
- * existing project, only the project's languages are available once a project exists.
- */
-export function languageOptions(
-  config: TranslationConfig,
-  projectLanguages: string[] | undefined,
-): LanguageOption[] {
-  return config.targetLanguages.map((language) => {
-    if (!projectLanguages || projectLanguages.includes(language.id)) return {...language, available: true}
-    return {
-      ...language,
-      available: false,
-      note: 'Not in this document’s TextUnited project. Adding a language to an existing project is not supported yet.',
-    }
-  })
+/** Reads the plugin's state document (any format the server has written). */
+export function readTranslationState(document: Record<string, unknown> | null | undefined): DocumentTranslationState {
+  const {projects, archived} = readProjects(document)
+  let state = emptyState()
+  try {
+    if (typeof document?.stateJson === 'string') state = JSON.parse(document.stateJson) as TranslationState
+  } catch {
+    // treated as nothing sent yet
+  }
+  if (typeof document?.projectsJson !== 'string') state = migrateLegacyState(state, projects[0]?.customId)
+  return {state, projects, archived}
 }
 
 export type LanguageProgress = {reviewed: number; total: number}
@@ -102,39 +106,26 @@ export type LanguageProgress = {reviewed: number; total: number}
 const REVIEWED_STATUSES = new Set(['translated', 'proofread'])
 
 /**
- * Per language: how many of the texts sent to TextUnited translators have confirmed.
- * Read from the plugin's state document; languages with nothing sent are left out.
+ * Per language of the document's projects: how many of the texts sent to its project translators
+ * have confirmed. A sent text counts whether it is translated yet or not.
  */
 export function languageProgress(
-  stateJson: string | undefined,
-  projectLanguages: string[] = [],
+  state: TranslationState,
+  projects: ProjectRecord[],
 ): Map<string, LanguageProgress> {
   const progress = new Map<string, LanguageProgress>()
-  let state: {units?: Record<string, {sentAt?: string; languages?: Record<string, {status?: string}>}>} = {}
-  try {
-    state = JSON.parse(stateJson ?? '{}')
-  } catch {
-    return progress
-  }
-  const units = Object.values(state.units ?? {}).filter((unit) => unit.sentAt)
-  for (const unit of units) {
-    // Every sent text counts for every project language, translated yet or not.
-    const languages = new Set([...projectLanguages, ...Object.keys(unit.languages ?? {})])
-    for (const language of languages) {
-      const entry = progress.get(language) ?? {reviewed: 0, total: 0}
-      entry.total += 1
-      const status = unit.languages?.[language]?.status
-      if (REVIEWED_STATUSES.has(String(status ?? '').toLowerCase())) entry.reviewed += 1
-      progress.set(language, entry)
+  for (const project of projects) {
+    for (const language of project.languages) {
+      const entry = {reviewed: 0, total: 0}
+      for (const record of Object.values(state.units)) {
+        if (!sentRecord(record, project.customId)) continue
+        entry.total += 1
+        if (REVIEWED_STATUSES.has(String(record.languages[language]?.status ?? '').toLowerCase())) entry.reviewed += 1
+      }
+      if (entry.total > 0) progress.set(language, entry)
     }
   }
   return progress
-}
-
-/** Languages ticked when the dialog opens: the project's languages, or none before a project exists. */
-export function defaultLanguages(options: LanguageOption[], projectLanguages: string[] | undefined): string[] {
-  if (!projectLanguages) return []
-  return options.filter((option) => option.available).map((option) => option.id)
 }
 
 export const INSTALL_GUIDE_URL =
@@ -258,6 +249,7 @@ export function describeRequest(request: TranslationStatusData['lastRequest']): 
   let summary: {
     tasksSent?: string[]
     unitsSelected?: number
+    textsSent?: number
     tasksAwaitingTranslation?: string[]
     outcomes?: Record<string, number>
     projectCreated?: boolean
@@ -270,9 +262,10 @@ export function describeRequest(request: TranslationStatusData['lastRequest']): 
   if (!summary.tasksSent?.length) return 'Nothing needed translation in the last request.'
   const applied = summary.outcomes?.applied ?? 0
   const kept = summary.outcomes?.keptManualEdit ?? 0
+  const texts = summary.textsSent ?? summary.unitsSelected
   const sent =
-    typeof summary.unitsSelected === 'number'
-      ? `${summary.unitsSelected} text(s)`
+    typeof texts === 'number'
+      ? `${texts} text(s)`
       : `${summary.tasksSent.length} part(s) of the document`
   const parts = [
     `${summary.projectCreated ? 'Created the TextUnited project and sent' : 'Sent'} ${sent}.`,

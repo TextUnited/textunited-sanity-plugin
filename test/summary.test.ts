@@ -47,6 +47,28 @@ describe('summarizePending', () => {
   })
 })
 
+describe('summarizePending with several projects', () => {
+  it('compares an edited text with what each language project was sent', () => {
+    const page = makePage() as any
+    const units = extractTranslationUnits(page, pageConfig, config)
+    // German got everything; French was added later and got nothing yet
+    const state = recordSentUnits(emptyState(), units, 't', undefined, 'p-de')
+    page.sections[1].heading[0].value = 'Book a free demo'
+    const edited = extractTranslationUnits(page, pageConfig, config)
+    const summary = summarizePending({
+      units: edited,
+      targets: {model: 'fieldLevel', document: page},
+      state,
+      languages: ['de', 'fr'],
+      projects: [{customId: 'p-de', languages: ['de']}],
+    })
+    // German: 3 untranslated + the edited heading. French: 4 untranslated + the edited heading,
+    // whose French text was made for the old English wording.
+    expect(summary.byLanguage).toEqual({de: 4, fr: 5})
+    expect(summary).toMatchObject({texts: 5, changed: 1})
+  })
+})
+
 describe('badgeLabel', () => {
   const progress = new Map([
     ['de', {reviewed: 5, total: 7}],

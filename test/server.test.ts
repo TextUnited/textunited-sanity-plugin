@@ -103,13 +103,33 @@ describe('translation request: fieldLevel page', () => {
     ).toBe('de:Book a call')
   })
 
-  it('fails with a clear message when the project lacks a requested language', async () => {
+  it('orders a language added later as a second project, leaving the first one as it is', async () => {
     const page = {...makePage(), _id: 'page1'}
-    const {request} = setup([page])
+    const {store, textUnited, request} = setup([page])
     await request('page1', ['de'])
+    const before = textUnited.calls.length
     const result = await request('page1', ['fr'])
-    expect(result.body.status).toBe('failed')
-    expect(result.body.error).toMatch(/no fr translation.*not supported by the TextUnited API yet/)
+    expect(result.body.status).toBe('done')
+    expect(result.body.summary.projectCreated).toBe(true)
+    const second = textUnited.calls.slice(before)
+
+    const posts = textUnited.calls.filter((call) => call.method === 'POST')
+    expect(posts.map((call) => call.body!.customId)).toEqual([
+      'sanity-proj-production-page1',
+      'sanity-proj-production-page1-2',
+    ])
+    // the second project holds French only and names it
+    expect(posts[1]!.body!.targetLanguages).toEqual([expect.objectContaining({targetLanguageCode: 'fr-fr'})])
+    expect(String(posts[1]!.body!.name)).toMatch(/ – FR \(page1\)$/)
+    // nothing was sent to the German project again
+    expect(second.filter((call) => call.body?.customId === 'sanity-proj-production-page1')).toHaveLength(0)
+
+    const state = store.documents.get('textunited.state.page1')!
+    expect(JSON.parse(String(state.projectsJson)).projects.map((p: any) => [p.customId, p.languages])).toEqual([
+      ['sanity-proj-production-page1', ['de']],
+      ['sanity-proj-production-page1-2', ['fr']],
+    ])
+    expect(state.projectLanguages).toEqual(['de', 'fr'])
   })
 })
 
@@ -160,7 +180,7 @@ describe('slow TextUnited answers', () => {
     )
     const body = (await response.json()) as {status: string; summary: Record<string, unknown>}
     expect(body.status).toBe('done')
-    expect(body.summary.tasksSent).toEqual(['fields', 'sections.s1'])
+    expect([...(body.summary.tasksSent as string[])].sort()).toEqual(['fields', 'sections.s1'])
     expect(body.summary.tasksAwaitingTranslation).toEqual(['fields'])
     // the section (sent with the create call) is translated; the title waits for TextUnited
     expect(

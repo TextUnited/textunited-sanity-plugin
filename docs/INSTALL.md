@@ -321,11 +321,14 @@ versions. The panel shows:
 The document's footer shows a badge with the review progress, e.g. *DE 5/7 · PL 7/7*, and the
 Studio shows a short message when reviewed translations arrive while the panel is open.
 
-**Target languages.** The first request decides the languages of the document's TextUnited
-project. Languages that are not in the project are listed under *Not in this project*; adding a
-language to an existing project is not supported by TextUnited yet.
+**Target languages.** Any configured language can be chosen at any time. The first request
+creates the document's TextUnited project with the chosen languages. TextUnited cannot add a
+language to an existing project, so a language chosen later (shown as *Not ordered yet*) is
+ordered as a **new project** for that language only; the first project stays as it is, and
+nothing is translated twice. Later changes of the text go to every project that has a chosen
+language. When a document has several projects, the panel lists them with links.
 
-**Who translates** (first request of a document only):
+**Who translates** (for each new project):
 
 - *TextUnited translators (outsourced)*: TextUnited manages the project and assigns translators.
 - *Your own team (in-house)*: pick people of your TextUnited account and their roles. At least
@@ -340,6 +343,12 @@ edited by hand in Sanity.
 Translations edited by hand in Sanity are kept when TextUnited sends an update, unless the
 source text was edited or *Retranslate everything* was used.
 
+**Start a new TextUnited project** (under **More options**) starts over, for example to change
+who translates or to put all languages in one project again. Every text of the document is sent,
+for the chosen languages, to a new project. The current projects stay in TextUnited as they are
+(they are not cancelled) and are listed as *replaced*; the document no longer follows them.
+Translations already in Sanity are kept, including ones reviewed in the replaced projects.
+
 ## Troubleshooting
 
 | Message or symptom | Cause and fix |
@@ -350,7 +359,7 @@ source text was edited or *Retranslate everything* was used.
 | *An in-house project needs at least one translator* | Tick **Translator** for at least one person. |
 | *TextUnited does not know these language codes: …* | A `textUnitedCode` in the configuration is wrong. Use one of the codes the message lists (see *Language codes* in step 3). |
 | *The fields of this document use the language ids …* | The `id` values in the configuration differ from the ones of the localization plugin (see *Language codes* in step 3). |
-| *The TextUnited project for this document has no de translation* | The language is not in the document's TextUnited project (see *Target languages*). |
+| *The TextUnited project for this document has no de translation* | The project in TextUnited no longer has a language the plugin expects (for example it was changed in the portal). Start a new project under **More options**. |
 | Machine translations appear, reviewed ones never do | The website cannot be reached by TextUnited over HTTPS, or the periodic check is not scheduled (step 6). |
 | *Translations are requested from the English version* | For one-document-per-language types, open the source-language document. |
 

@@ -4,29 +4,11 @@ import {
   canTranslateDocument,
   checkLanguageIds,
   checkLocalizationSetup,
-  defaultLanguages,
   describeRequest,
-  languageOptions,
   languageProgress,
+  readTranslationState,
 } from '../src/studio/logic'
 import {config} from './fixtures'
-
-describe('languageOptions', () => {
-  it('offers every language before a project exists, and preselects none', () => {
-    const options = languageOptions(config, undefined)
-    expect(options.every((option) => option.available)).toBe(true)
-    expect(defaultLanguages(options, undefined)).toEqual([])
-  })
-
-  it('offers only the project languages once a project exists, and explains why', () => {
-    const options = languageOptions(config, ['de'])
-    expect(options.find((o) => o.id === 'de')?.available).toBe(true)
-    const french = options.find((o) => o.id === 'fr')!
-    expect(french.available).toBe(false)
-    expect(french.note).toMatch(/not supported yet/)
-    expect(defaultLanguages(options, ['de'])).toEqual(['de'])
-  })
-})
 
 describe('canTranslateDocument', () => {
   it('allows configured types in the source language only', () => {
@@ -64,30 +46,43 @@ describe('describeRequest', () => {
 })
 
 describe('languageProgress', () => {
-  it('counts texts confirmed by translators per language, among the texts sent', () => {
-    const stateJson = JSON.stringify({
-      units: {
-        title: {sentAt: 'x', languages: {pl: {status: 'proofread'}, de: {status: 'automatic'}}},
-        body: {sentAt: 'x', languages: {pl: {status: 'translated'}, de: {status: 'translated'}}},
-        never: {languages: {pl: {status: 'automatic'}}},
-      },
-    })
-    const progress = languageProgress(stateJson)
-    expect(progress.get('pl')).toEqual({reviewed: 2, total: 2})
-    expect(progress.get('de')).toEqual({reviewed: 1, total: 2})
-    expect(languageProgress('not json').size).toBe(0)
-  })
+  const projects = [
+    {customId: 'p1', languages: ['pl', 'de']},
+    {customId: 'p2', languages: ['fr']},
+  ]
+  const sent = (...ids: string[]) => Object.fromEntries(ids.map((id) => [id, {sourceHash: 'h', sentAt: 'x'}]))
 
-  it('counts a sent text still waiting for TextUnited in every project language', () => {
-    const stateJson = JSON.stringify({
-      units: {title: {sentAt: 'x', languages: {pl: {status: 'proofread'}}}, body: {sentAt: 'x', languages: {}}},
-    })
-    const progress = languageProgress(stateJson, ['pl', 'de'])
-    expect(progress.get('pl')).toEqual({reviewed: 1, total: 2})
+  it('counts, per language, the texts sent to its project and the ones translators confirmed', () => {
+    const progress = languageProgress(
+      {
+        units: {
+          title: {sourceHash: 'h', projects: sent('p1', 'p2'), languages: {pl: {appliedHash: 'a', status: 'proofread'}, fr: {appliedHash: 'a', status: 'translated'}}},
+          body: {sourceHash: 'h', projects: sent('p1'), languages: {pl: {appliedHash: 'a', status: 'translated'}, de: {appliedHash: 'a', status: 'automatic'}}},
+          never: {sourceHash: 'h', languages: {pl: {appliedHash: 'a', status: 'automatic'}}},
+        },
+      },
+      projects,
+    )
+    expect(progress.get('pl')).toEqual({reviewed: 2, total: 2})
     expect(progress.get('de')).toEqual({reviewed: 0, total: 2})
+    // French was ordered later, for the title only
+    expect(progress.get('fr')).toEqual({reviewed: 1, total: 1})
   })
 })
 
+describe('readTranslationState', () => {
+  it('reads states written before documents could have several projects', () => {
+    const read = readTranslationState({
+      projectCustomId: 'p1',
+      projectLanguages: ['de'],
+      projectType: 'inHouse',
+      stateJson: JSON.stringify({units: {title: {sourceHash: 'h', sentAt: 'x', taskId: 't1', languages: {}}}}),
+    })
+    expect(read.projects).toEqual([{customId: 'p1', languages: ['de'], projectType: 'inHouse'}])
+    expect(read.state.units.title?.projects).toEqual({p1: {sourceHash: 'h', sentAt: 'x', taskId: 't1'}})
+    expect(readTranslationState(null).projects).toEqual([])
+  })
+})
 
 describe('checkLocalizationSetup', () => {
   const withBoth = ['page', 'post', 'internationalizedArrayString', 'translation.metadata']

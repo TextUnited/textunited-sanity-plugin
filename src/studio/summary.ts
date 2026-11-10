@@ -1,6 +1,7 @@
 import type {TranslationUnit} from '../core/document/extract'
 import type {TranslationTargets} from '../core/document/target'
 import {planTranslation, type TranslationMode, type TranslationState} from '../core/plan'
+import {projectForLanguage, type ProjectRecord} from '../core/projects'
 
 /** What a translation request would send, in words an editor understands. */
 export type PendingSummary = {
@@ -24,26 +25,50 @@ export function countWords(content: string): number {
 
 /**
  * What the request would send for the chosen languages. The default request (`changed`) sends
- * untranslated texts and texts whose source changed; `all` sends everything.
+ * untranslated texts and texts whose source changed since they were sent to the language's
+ * project; `all` sends everything.
  */
 export function summarizePending(args: {
   units: TranslationUnit[]
   targets: TranslationTargets
   state: TranslationState
   languages: string[]
+  projects?: ProjectRecord[]
   mode?: TranslationMode
 }): PendingSummary {
   const mode = args.mode ?? 'changed'
-  const plan = planTranslation({...args, mode})
-  const byLanguage: Record<string, number> = {}
+  const projects = args.projects ?? []
+  const planFor = (languages: string[]) =>
+    planTranslation({
+      units: args.units,
+      targets: args.targets,
+      state: args.state,
+      languages,
+      mode,
+      projectCustomId: languages[0] ? projectForLanguage(projects, languages[0])?.customId : undefined,
+    })
+
+  // The chosen languages grouped as the server sends them: per project, new languages together.
+  const groups = new Map<string, string[]>()
   for (const language of args.languages) {
-    byLanguage[language] = planTranslation({...args, languages: [language], mode}).selected.length
+    const key = projectForLanguage(projects, language)?.customId ?? ''
+    groups.set(key, [...(groups.get(key) ?? []), language])
   }
+  const selected = new Map<string, {unit: TranslationUnit; reason: string}>()
+  for (const languages of groups.values()) {
+    for (const entry of planFor(languages).selected) {
+      // An edited text counts as changed even when another project only misses it.
+      if (!selected.has(entry.unit.id) || entry.reason === 'sourceChanged') selected.set(entry.unit.id, entry)
+    }
+  }
+  const byLanguage: Record<string, number> = {}
+  for (const language of args.languages) byLanguage[language] = planFor([language]).selected.length
+  const chosen = [...selected.values()]
   return {
-    texts: plan.selected.length,
-    changed: plan.selected.filter(({reason}) => reason === 'sourceChanged').length,
-    untranslated: plan.selected.filter(({reason}) => reason === 'missing').length,
-    words: plan.selected.reduce(
+    texts: chosen.length,
+    changed: chosen.filter(({reason}) => reason === 'sourceChanged').length,
+    untranslated: chosen.filter(({reason}) => reason === 'missing').length,
+    words: chosen.reduce(
       (sum, {unit}) => sum + unit.segments.reduce((total, segment) => total + countWords(segment.content), 0),
       0,
     ),
