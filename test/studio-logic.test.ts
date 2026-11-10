@@ -121,3 +121,14 @@ describe('checkLanguageIds', () => {
     )
   })
 })
+
+describe('describeRequest for stop and resume', () => {
+  it('names the language', () => {
+    expect(describeRequest({_id: 'r', status: 'done', summaryJson: JSON.stringify({action: 'stop', languages: ['fr'], tasksSent: []})})).toBe(
+      'Stopped translating FR.',
+    )
+    expect(describeRequest({_id: 'r', status: 'done', summaryJson: JSON.stringify({action: 'resume', languages: ['fr'], tasksSent: []})})).toBe(
+      'Resumed translating FR.',
+    )
+  })
+})

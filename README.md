@@ -51,6 +51,8 @@ Done:
   with a requested language, and notifications read every project. "Start a new TextUnited
   project" (reset) archives the current projects and sends the whole document to a new one.
   States from the single-project format are read and migrated.
+- stop and resume a language per document ("Stop French"): the plugin no longer sends, writes or
+  restores it; the language stays in its TextUnited project. Stored in the state as `stopped`.
 - Studio: a TextUnited panel (document inspector) next to the configured types, opened from
   the document header or the "Translate" action. It shows how many texts need translation
   (changed or not translated yet, with a word count) and sends them with one button, the review

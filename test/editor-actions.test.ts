@@ -41,6 +41,16 @@ function setup(documents: PlainObject[], documentId: string) {
     )
     return (await response.json()) as Record<string, any>
   }
+  const post = async (requestId: string) => {
+    const response = await handle(
+      new Request('https://www.example.com/api/textunited/jobs', {
+        method: 'POST',
+        headers: {origin: STUDIO},
+        body: JSON.stringify({requestId}),
+      }),
+    )
+    return (await response.json()) as Record<string, any>
+  }
   const sync = async () => {
     const sig = await signDocumentId('test-secret', documentId)
     const response = await handle(new Request(`https://www.example.com/api/textunited/events?doc=${documentId}&sig=${sig}`))
@@ -54,7 +64,7 @@ function setup(documents: PlainObject[], documentId: string) {
     await store.mutate([{createOrReplace: draft}])
   }
   const draft = () => store.documents.get(`drafts.${documentId}`) as any
-  return {store, textUnited, request, sync, editDraft, draft}
+  return {store, textUnited, request, post, sync, editDraft, draft}
 }
 
 const titleIn = (document: any, language: string) =>
@@ -182,5 +192,65 @@ describe('editor actions on translated documents (Document Internationalization)
     const metadata = [...t.store.documents.values()].find((doc) => doc._type === 'translation.metadata')!
     const entries = (metadata.translations as Array<{_key: string; value: {_ref: string}}>).filter((e) => e._key === 'de')
     expect(entries.map((entry) => entry.value._ref)).toEqual([String(recreated._id).replace(/^drafts\./, '')])
+  })
+})
+
+describe('stop and resume a language', () => {
+  const change = async (t: ReturnType<typeof setup>, action: 'stop' | 'resume', language: string) => {
+    await t.store.mutate([
+      {
+        create: {
+          _id: `textunited.request.${action}-${language}`,
+          _type: 'textunited.translationRequest',
+          documentId: 'page1',
+          languages: [language],
+          mode: 'changed',
+          action,
+          status: 'queued',
+        },
+      },
+    ])
+    // the same handler as the other requests
+    return t.post(`textunited.request.${action}-${language}`)
+  }
+
+  it('a stopped language is not sent, written or restored, until it is resumed', async () => {
+    const t = setup([{...makePage(), _id: 'page1'}], 'page1')
+    await t.request(['de', 'fr'])
+    const before = t.textUnited.calls.length
+    const stop = await change(t, 'stop', 'fr')
+    expect(stop.summary).toMatchObject({action: 'stop', languages: ['fr']})
+    // stopping talks to nobody: the language stays in its TextUnited project
+    expect(t.textUnited.calls.length).toBe(before)
+    const state = t.store.documents.get('textunited.state.page1')!
+    expect(JSON.parse(String(state.projectsJson)).stopped).toEqual(['fr'])
+    expect(state.projectLanguages).toEqual(['de'])
+
+    // the editor removes French; the sync leaves it removed
+    await t.editDraft((draft) => {
+      draft.title = draft.title.filter((item: any) => item._key !== 'fr')
+    })
+    await t.sync()
+    expect(titleIn(t.draft(), 'fr')).toBeUndefined()
+
+    // a request for both languages only sends German
+    await t.editDraft((draft) => {
+      titleIn(draft, 'en')!.value = 'Enterprise language layer, renewed'
+    })
+    const body = await t.request(['de', 'fr'])
+    expect(body.status).toBe('done')
+    expect(titleIn(t.draft(), 'de')?.value).toBe('de:Enterprise language layer, renewed')
+    expect(titleIn(t.draft(), 'fr')).toBeUndefined()
+
+    // only French requested while stopped: refused with an explanation
+    const refused = await t.request(['fr'])
+    expect(refused.status).toBe('failed')
+    expect(refused.error).toMatch(/stopped/)
+
+    // resumed: French is requested again like any language
+    await change(t, 'resume', 'fr')
+    const resumed = await t.request(['fr'])
+    expect(resumed.status).toBe('done')
+    expect(titleIn(t.draft(), 'fr')?.value).toBe('fr:Enterprise language layer, renewed')
   })
 })

@@ -86,11 +86,13 @@ export type DocumentTranslationState = {
   state: TranslationState
   projects: ProjectRecord[]
   archived: ProjectRecord[]
+  /** Languages stopped for this document */
+  stopped: string[]
 }
 
 /** Reads the plugin's state document (any format the server has written). */
 export function readTranslationState(document: Record<string, unknown> | null | undefined): DocumentTranslationState {
-  const {projects, archived} = readProjects(document)
+  const {projects, archived, stopped} = readProjects(document)
   let state = emptyState()
   try {
     if (typeof document?.stateJson === 'string') state = JSON.parse(document.stateJson) as TranslationState
@@ -98,7 +100,7 @@ export function readTranslationState(document: Record<string, unknown> | null | 
     // treated as nothing sent yet
   }
   if (typeof document?.projectsJson !== 'string') state = migrateLegacyState(state, projects[0]?.customId)
-  return {state, projects, archived}
+  return {state, projects, archived, stopped}
 }
 
 export type LanguageProgress = {reviewed: number; total: number}
@@ -250,6 +252,8 @@ export function describeRequest(request: TranslationStatusData['lastRequest']): 
     tasksSent?: string[]
     unitsSelected?: number
     textsSent?: number
+    action?: 'stop' | 'resume'
+    languages?: string[]
     tasksAwaitingTranslation?: string[]
     outcomes?: Record<string, number>
     projectCreated?: boolean
@@ -259,6 +263,8 @@ export function describeRequest(request: TranslationStatusData['lastRequest']): 
   } catch {
     // keep the empty summary
   }
+  if (summary.action === 'stop') return `Stopped translating ${(summary.languages ?? []).join(', ').toUpperCase()}.`
+  if (summary.action === 'resume') return `Resumed translating ${(summary.languages ?? []).join(', ').toUpperCase()}.`
   if (!summary.tasksSent?.length) return 'Nothing needed translation in the last request.'
   const applied = summary.outcomes?.applied ?? 0
   const kept = summary.outcomes?.keptManualEdit ?? 0

@@ -18,7 +18,15 @@ export type ProjectRecord = {
   createdAt?: string
 }
 
-export type DocumentProjects = {projects: ProjectRecord[]; archived: ProjectRecord[]}
+export type DocumentProjects = {
+  projects: ProjectRecord[]
+  archived: ProjectRecord[]
+  /**
+   * Languages an editor stopped for this document: nothing is sent, written or restored for them
+   * any more. They stay in their TextUnited project.
+   */
+  stopped: string[]
+}
 
 function isProjectType(value: unknown): value is ProjectType {
   return value === 'outsourced' || value === 'inHouse'
@@ -41,26 +49,35 @@ function toRecord(value: unknown): ProjectRecord | null {
  * states written before documents could have several projects.
  */
 export function readProjects(document: Record<string, unknown> | null | undefined): DocumentProjects {
-  if (!document) return {projects: [], archived: []}
+  if (!document) return {projects: [], archived: [], stopped: []}
   if (typeof document.projectsJson === 'string') {
     try {
-      const parsed = JSON.parse(document.projectsJson) as {projects?: unknown[]; archived?: unknown[]}
+      const parsed = JSON.parse(document.projectsJson) as {projects?: unknown[]; archived?: unknown[]; stopped?: unknown[]}
       return {
         projects: (parsed.projects ?? []).map(toRecord).filter((p): p is ProjectRecord => p !== null),
         archived: (parsed.archived ?? []).map(toRecord).filter((p): p is ProjectRecord => p !== null),
+        stopped: Array.isArray(parsed.stopped) ? parsed.stopped.map(String) : [],
       }
     } catch {
       // fall back to the single-project fields
     }
   }
-  if (typeof document.projectCustomId !== 'string') return {projects: [], archived: []}
+  if (typeof document.projectCustomId !== 'string') return {projects: [], archived: [], stopped: []}
   const legacy = toRecord({
     customId: document.projectCustomId,
     languages: document.projectLanguages,
     projectType: document.projectType,
     projectId: document.projectId,
   })
-  return {projects: legacy ? [legacy] : [], archived: []}
+  return {projects: legacy ? [legacy] : [], archived: [], stopped: []}
+}
+
+/** The projects with only the languages that are not stopped; projects left with none are dropped. */
+export function activeProjects(projects: ProjectRecord[], stopped: string[]): ProjectRecord[] {
+  if (stopped.length === 0) return projects
+  return projects
+    .map((project) => ({...project, languages: project.languages.filter((language) => !stopped.includes(language))}))
+    .filter((project) => project.languages.length > 0)
 }
 
 /** The project a language belongs to, if any. */

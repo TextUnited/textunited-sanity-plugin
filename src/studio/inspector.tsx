@@ -7,7 +7,7 @@ import {
 } from 'sanity'
 
 import {getBaseDocumentId} from '../core/ids'
-import {projectLanguages} from '../core/projects'
+import {activeProjects, projectLanguages} from '../core/projects'
 import {languageProgress, readTranslationState} from './logic'
 import type {TextUnitedStudioOptions} from './options'
 import {badgeLabel} from './summary'
@@ -68,9 +68,10 @@ export function createTranslationBadge(): DocumentBadgeComponent {
   const TranslationBadge: DocumentBadgeComponent = (props) => {
     const state = useStateSummary(props.id)
     const badge = useMemo(() => {
-      const {state: translationState, projects} = readTranslationState(state)
-      if (projects.length === 0) return null
-      return badgeLabel(languageProgress(translationState, projects), projectLanguages(projects))
+      const {state: translationState, projects, stopped} = readTranslationState(state)
+      const active = activeProjects(projects, stopped)
+      if (active.length === 0) return null
+      return badgeLabel(languageProgress(translationState, active), projectLanguages(active))
     }, [state])
     if (!badge) return null
     return {

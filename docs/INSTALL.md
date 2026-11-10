@@ -343,6 +343,13 @@ edited by hand in Sanity.
 Translations edited by hand in Sanity are kept when TextUnited sends an update, unless the
 source text was edited or *Retranslate everything* was used.
 
+**Stop a language** (under **More options**, e.g. *Stop French*) when a document should no
+longer be translated into it. Nothing is sent, written or restored for that language any more, so
+its texts in Sanity can be removed and stay removed (otherwise the plugin fills a removed
+translation in again from TextUnited). The language stays in its TextUnited project, where
+translators may still work on it; ask your project manager if it should be cancelled. A stopped
+language shows *Stopped* with a **Resume** button.
+
 **Start a new TextUnited project** (under **More options**) starts over, for example to change
 who translates or to put all languages in one project again. Every text of the document is sent,
 for the chosen languages, to a new project. The current projects stay in TextUnited as they are

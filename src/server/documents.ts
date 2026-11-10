@@ -4,7 +4,7 @@ import {slugify} from '../core/document/slug'
 import type {TranslationTargets} from '../core/document/target'
 import {getBaseDocumentId} from '../core/ids'
 import {emptyState, migrateLegacyState, type TranslationState} from '../core/plan'
-import {projectLanguages, readProjects, type ProjectRecord} from '../core/projects'
+import {activeProjects, projectLanguages, readProjects, type ProjectRecord} from '../core/projects'
 import {getPreferredDocument, type Mutation, type SanityStore} from './sanityStore'
 
 /** Types of the documents this package keeps in Sanity. Their ids contain a dot, so they are private. */
@@ -29,13 +29,15 @@ export type StoredState = {
   projects: ProjectRecord[]
   /** Projects replaced by a reset; kept for reference */
   archived: ProjectRecord[]
+  /** Languages stopped by an editor for this document */
+  stopped: string[]
   /** Revision of the state document when it was read; absent when it does not exist yet */
   revision?: string
 }
 
 export async function loadState(store: SanityStore, baseDocumentId: string): Promise<StoredState> {
   const document = await store.getDocument(stateDocumentId(baseDocumentId))
-  if (!document) return {state: emptyState(), projects: [], archived: []}
+  if (!document) return {state: emptyState(), projects: [], archived: [], stopped: []}
   const revision = typeof document._rev === 'string' ? document._rev : undefined
   let state = emptyState()
   try {
@@ -43,10 +45,10 @@ export async function loadState(store: SanityStore, baseDocumentId: string): Pro
   } catch {
     // A damaged state only means translations are treated as not written by the plugin.
   }
-  const {projects, archived} = readProjects(document)
+  const {projects, archived, stopped} = readProjects(document)
   // States from before several projects keep what was sent on the unit: it belongs to the first.
   if (typeof document.projectsJson !== 'string') state = migrateLegacyState(state, projects[0]?.customId)
-  return {state, revision, projects, archived}
+  return {state, revision, projects, archived, stopped}
 }
 
 /**
@@ -62,9 +64,9 @@ export function saveStateMutation(
   const first = stored.projects[0]
   const fields = {
     documentId: baseDocumentId,
-    projectsJson: JSON.stringify({projects: stored.projects, archived: stored.archived}),
+    projectsJson: JSON.stringify({projects: stored.projects, archived: stored.archived, stopped: stored.stopped}),
     projectCustomId: first?.customId,
-    projectLanguages: projectLanguages(stored.projects),
+    projectLanguages: projectLanguages(activeProjects(stored.projects, stored.stopped)),
     projectType: first?.projectType,
     projectId: first?.projectId,
     stateJson: JSON.stringify(stored.state),

@@ -2,7 +2,7 @@ import {getDocumentTypeConfig} from '../core/config'
 import {applyTranslations, type ApplyOutcome} from '../core/document/apply'
 import {extractTranslationUnits, type TranslationUnit} from '../core/document/extract'
 import {hasPendingTranslations, sentRecord} from '../core/plan'
-import {projectLanguages} from '../core/projects'
+import {activeProjects, projectLanguages} from '../core/projects'
 import {
   createMissingTranslationDocuments,
   loadState,
@@ -37,7 +37,9 @@ export async function syncDocument(baseId: string, context: JobContext): Promise
   for (let attempt = 1; ; attempt += 1) {
     const stored = await loadState(context.store, baseId)
     if (stored.projects.length === 0) return {status: 'ignored', reason: 'No TextUnited project for this document'}
-    const languages = projectLanguages(stored.projects)
+    // Stopped languages are left alone: nothing is written or restored for them.
+    const projects = activeProjects(stored.projects, stored.stopped)
+    const languages = projectLanguages(projects)
 
     const source = await getPreferredDocument(context.store, baseId)
     if (!source) return {status: 'ignored', reason: 'Document not found'}
@@ -60,7 +62,7 @@ export async function syncDocument(baseId: string, context: JobContext): Promise
     const changedFields = new Map<string, Set<string>>()
     const outcomes: Array<{outcome: ApplyOutcome}> = []
     const changedUnits = new Set<string>()
-    for (const project of stored.projects) {
+    for (const project of projects) {
       const sentOf = (unit: TranslationUnit) => sentRecord(state.units[unit.id], project.customId)
       // In append mode a segment may be in several tasks; read it from the task it was last sent in.
       const taskOf = new Map<string, string>()
@@ -104,7 +106,7 @@ export async function syncDocument(baseId: string, context: JobContext): Promise
         changedFields.set(key, all)
       }
     }
-    const pending = hasPendingTranslations(state, stored.projects, isFinalStatus)
+    const pending = hasPendingTranslations(state, projects, isFinalStatus)
 
     try {
       await context.store.mutate([

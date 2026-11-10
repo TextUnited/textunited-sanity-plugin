@@ -21,7 +21,7 @@ import {
   type TextUnitedClient,
 } from '../core/textunited/client'
 import type {TranslationTargets} from '../core/document/target'
-import type {ProjectRecord} from '../core/projects'
+import {activeProjects, type ProjectRecord} from '../core/projects'
 import type {
   ProjectResponse,
   ProjectSegment,
@@ -134,6 +134,9 @@ export type JobSummary = {
   textsSent?: number
   outcomes: Partial<Record<ApplyOutcome, number>>
   projectCreated: boolean
+  /** For a stop or resume request: what changed */
+  action?: 'stop' | 'resume'
+  languages?: string[]
 }
 
 export type JobResult =
@@ -233,10 +236,21 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
   if (!VALID_MODES.has(mode)) throw new Error(`Unknown translation mode: ${mode}`)
 
   const configured = new Set(config.targetLanguages.map((language) => language.id))
-  const languages = (Array.isArray(request.languages) ? request.languages : [])
+  const requestedLanguages = (Array.isArray(request.languages) ? request.languages : [])
     .map(String)
     .filter((language) => configured.has(language))
-  if (languages.length === 0) throw new Error('No configured target language was requested')
+  if (requestedLanguages.length === 0) throw new Error('No configured target language was requested')
+
+  if (request.action === 'stop' || request.action === 'resume') {
+    return changeStoppedLanguages(baseId, requestedLanguages, request.action, context)
+  }
+
+  // Stopped languages are not sent, written or restored until an editor resumes them.
+  const stored = await loadState(context.store, baseId)
+  const languages = requestedLanguages.filter((language) => !stored.stopped.includes(language))
+  if (languages.length === 0) {
+    throw new Error('Translation is stopped for the requested languages. Resume them in the TextUnited panel first.')
+  }
 
   const source = await getPreferredDocument(context.store, baseId)
   if (!source) throw new Error(`Document ${baseId} not found`)
@@ -245,11 +259,10 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
 
   const units = extractTranslationUnits(source, typeConfig, config)
   const loaded = await loadTargets({store: context.store, source, typeConfig, languages})
-  const stored = await loadState(context.store, baseId)
   const baseState = recordBaseline(stored.state, units)
 
   // A reset starts over: the current projects are archived and a new one takes the languages.
-  const activeProjects = reset ? [] : stored.projects
+  const currentProjects = reset ? [] : stored.projects
   const archived = reset ? [...stored.archived, ...stored.projects] : stored.archived
   const groups = planGroups({
     units,
@@ -259,8 +272,8 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
     mode,
     reset,
     append: context.capabilities?.appendSegments === true,
-    projects: activeProjects,
-    newCustomId: () => projectCustomIdFor(context, baseId, activeProjects.length + archived.length),
+    projects: currentProjects,
+    newCustomId: () => projectCustomIdFor(context, baseId, currentProjects.length + archived.length),
   })
 
   const selectedIds = new Set(groups.flatMap((group) => group.apply.selected.map(({unit}) => unit.id)))
@@ -273,7 +286,7 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
   summary.textsSent = new Set(groups.flatMap((group) => group.sendUnits.map((unit) => unit.id))).size
   if (groups.every((group) => group.sendUnits.length === 0)) {
     try {
-      const pending = hasPendingTranslations(baseState, stored.projects, isFinalStatus)
+      const pending = hasPendingTranslations(baseState, activeProjects(stored.projects, stored.stopped), isFinalStatus)
       await context.store.mutate([saveStateMutation(baseId, {...stored, state: baseState}, pending)])
     } catch (error) {
       // The baseline is only a convenience; a concurrent save already holds a newer state.
@@ -285,7 +298,7 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
   await assertKnownLanguageCodes(context, languages)
   const eventUrl = await context.eventUrl(baseId)
   const sentAt = now().toISOString()
-  const isFirst = activeProjects.length === 0 && archived.length === 0
+  const isFirst = currentProjects.length === 0 && archived.length === 0
 
   // Each project is sent to separately; they do not depend on each other.
   const results = await Promise.all(
@@ -295,7 +308,7 @@ async function runRequest(request: PlainObject, context: JobContext, newId: () =
   )
 
   let sentState = baseState
-  const projects = [...activeProjects]
+  const projects = [...currentProjects]
   const responses: ProjectResponse[] = []
   for (const result of results) {
     responses.push(...result.responses)
@@ -539,6 +552,37 @@ async function sendToProject(args: {
   return result
 }
 
+/**
+ * Stops or resumes languages for a document. Nothing is sent to TextUnited: the languages stay in
+ * their projects, the plugin only stops (or starts again) sending, writing and restoring them.
+ */
+async function changeStoppedLanguages(
+  baseId: string,
+  languages: string[],
+  action: 'stop' | 'resume',
+  context: JobContext,
+): Promise<JobSummary> {
+  for (let attempt = 1; ; attempt += 1) {
+    const stored = await loadState(context.store, baseId)
+    const stopped =
+      action === 'stop'
+        ? [...new Set([...stored.stopped, ...languages])]
+        : stored.stopped.filter((language) => !languages.includes(language))
+    try {
+      await context.store.mutate([
+        saveStateMutation(
+          baseId,
+          {...stored, stopped},
+          hasPendingTranslations(stored.state, activeProjects(stored.projects, stopped), isFinalStatus),
+        ),
+      ])
+      return {tasksSent: [], unitsSelected: 0, textsSent: 0, outcomes: {}, projectCreated: false, action, languages}
+    } catch (error) {
+      if (!(error instanceof SanityConflictError) || attempt >= 3) throw error
+    }
+  }
+}
+
 function appendTaskId(date: Date, newId: () => string): string {
   const stamp = date.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
   const suffix = newId().replace(/[^a-z0-9]/gi, '').slice(0, 6).toLowerCase()
@@ -648,8 +692,8 @@ async function finishRequest(args: {
         ...targetMutations,
         saveStateMutation(
           baseId,
-          {state, projects: args.projects, archived: args.archived, revision: current.revision},
-          hasPendingTranslations(state, args.projects, isFinalStatus),
+          {state, projects: args.projects, archived: args.archived, stopped: current.stopped, revision: current.revision},
+          hasPendingTranslations(state, activeProjects(args.projects, current.stopped), isFinalStatus),
         ),
       ])
       return summary

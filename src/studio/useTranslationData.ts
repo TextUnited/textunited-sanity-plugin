@@ -25,6 +25,8 @@ export type TranslationData = {
   /** The document's TextUnited projects, and the ones a reset replaced */
   projects: ProjectRecord[]
   archived: ProjectRecord[]
+  /** Languages stopped for this document */
+  stopped: string[]
   requests: RequestRecord[]
   source: PlainObject | null
   units: TranslationUnit[]
@@ -144,6 +146,7 @@ export function useTranslationData(
     translationState: read.state,
     projects: read.projects,
     archived: read.archived,
+    stopped: read.stopped,
     requests: status?.requests ?? [],
     source,
     units,

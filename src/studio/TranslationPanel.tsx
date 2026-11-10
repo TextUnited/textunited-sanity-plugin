@@ -4,7 +4,7 @@ import {useEffect, useMemo, useRef, useState} from 'react'
 import {useClient, useSchema} from 'sanity'
 
 import {getBaseDocumentId} from '../core/ids'
-import {projectForLanguage, projectLanguages, type ProjectRecord} from '../core/projects'
+import {activeProjects, projectForLanguage, projectLanguages, type ProjectRecord} from '../core/projects'
 import type {TranslationMode} from '../core/plan'
 import {
   canTranslateDocument,
@@ -113,15 +113,18 @@ export function TranslationPanel(props: {
   const {projectId: sanityProjectId, dataset} = client.config()
   const storageKey = teamStorageKey(String(sanityProjectId), String(dataset))
 
-  const {projects, archived} = data
+  const {projects, archived, stopped} = data
+  const active = useMemo(() => activeProjects(projects, stopped), [projects, stopped])
   const hasProject = projects.length > 0
   const languages = options.translation.targetLanguages
   const [selected, setSelected] = useState<string[] | null>(null)
   useEffect(() => {
     // Preselect the languages of the document's projects once the status is known.
-    if (!data.loading && selected === null) setSelected(projectLanguages(projects))
-  }, [data.loading, selected, projects])
-  const chosen = (selected ?? []).filter((id) => languages.some((language) => language.id === id))
+    if (!data.loading && selected === null) setSelected(projectLanguages(active))
+  }, [data.loading, selected, active])
+  const chosen = (selected ?? []).filter(
+    (id) => !stopped.includes(id) && languages.some((language) => language.id === id),
+  )
 
   // A reset starts a new project for the chosen languages; the current ones are kept as they are.
   const [resetMode, setResetMode] = useState(false)
@@ -146,8 +149,8 @@ export function TranslationPanel(props: {
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const progress = useMemo(
-    () => languageProgress(data.translationState, projects),
-    [data.translationState, projects],
+    () => languageProgress(data.translationState, active),
+    [data.translationState, active],
   )
   const pending = useMemo(
     () =>
@@ -170,7 +173,7 @@ export function TranslationPanel(props: {
             units: data.units,
             targets: data.targets,
             state: data.translationState,
-            languages: languages.map((language) => language.id),
+            languages: languages.map((language) => language.id).filter((id) => !stopped.includes(id)),
             projects,
           }).byLanguage
         : {},
@@ -242,6 +245,40 @@ export function TranslationPanel(props: {
     setSubmitting(false)
     setShowMore(false)
     setResetMode(false)
+  }
+
+  // Stop or resume a language: nothing goes to TextUnited, the server only updates the state.
+  const [stopTarget, setStopTarget] = useState<string | null>(null)
+  const changeLanguage = async (action: 'stop' | 'resume', language: string) => {
+    setSubmitting(true)
+    setSubmitError(null)
+    const requestId = `textunited.request.${crypto.randomUUID()}`
+    try {
+      await client.create({
+        _id: requestId,
+        _type: 'textunited.translationRequest',
+        documentId: getBaseDocumentId(documentId),
+        languages: [language],
+        mode: 'changed',
+        action,
+        status: 'queued',
+        requestedAt: new Date().toISOString(),
+      })
+      await fetch(`${options.handlerUrl.replace(/\/+$/, '')}/jobs`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({requestId}),
+      })
+      setSelected((current) =>
+        action === 'stop' ? (current ?? []).filter((id) => id !== language) : [...(current ?? []), language],
+      )
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Could not change the language')
+    }
+    data.refresh()
+    setSubmitting(false)
+    setStopTarget(null)
+    setShowMore(false)
   }
 
   const linkTo = (project: ProjectRecord) =>
@@ -382,6 +419,29 @@ export function TranslationPanel(props: {
                 const inProject = Boolean(projectForLanguage(projects, language.id))
                 const toSend = perLanguage[language.id] ?? 0
                 const done = entry && entry.total > 0 && entry.reviewed === entry.total
+                if (stopped.includes(language.id)) {
+                  return (
+                    <Flex key={language.id} align="center" gap={2}>
+                      <Checkbox checked={false} disabled />
+                      <Box flex={1}>
+                        <Text size={1} muted>
+                          {language.title}
+                        </Text>
+                      </Box>
+                      <Text size={0} muted>
+                        Stopped
+                      </Text>
+                      <Button
+                        mode="bleed"
+                        fontSize={0}
+                        padding={1}
+                        text="Resume"
+                        disabled={running || submitting}
+                        onClick={() => void changeLanguage('resume', language.id)}
+                      />
+                    </Flex>
+                  )
+                }
                 return (
                   <Stack key={language.id} space={2}>
                     <Flex align="center" gap={2} as="label">
@@ -489,6 +549,31 @@ export function TranslationPanel(props: {
               </Card>
             ) : null}
 
+            {stopTarget ? (
+              <Card padding={3} radius={2} tone="caution">
+                <Stack space={3}>
+                  <Text size={1} weight="semibold">
+                    Stop translating {titleOf(stopTarget)}?
+                  </Text>
+                  <Text size={1}>
+                    Changes of this document are no longer sent for {titleOf(stopTarget)}, and
+                    translations from TextUnited are no longer written or restored. The language
+                    stays in its TextUnited project, where translators may still work on it; ask your
+                    project manager if it should be cancelled. You can resume it at any time.
+                  </Text>
+                  <Flex gap={2}>
+                    <Button
+                      tone="caution"
+                      text={`Stop ${titleOf(stopTarget)}`}
+                      loading={submitting}
+                      onClick={() => void changeLanguage('stop', stopTarget)}
+                    />
+                    <Button mode="bleed" text="Cancel" onClick={() => setStopTarget(null)} />
+                  </Flex>
+                </Stack>
+              </Card>
+            ) : null}
+
             <Stack space={2}>
               <Button
                 tone={resetMode ? 'caution' : 'primary'}
@@ -527,6 +612,29 @@ export function TranslationPanel(props: {
                         onClick={() => void send('all')}
                       />
                     </Stack>
+                    {projectLanguages(active).length > 0 ? (
+                      <Stack space={3}>
+                        <Text size={1} muted>
+                          Stop translating a language on this document: nothing is sent, written or
+                          restored for it any more. Its texts in Sanity stay until you remove them.
+                        </Text>
+                        <Flex gap={2} wrap="wrap">
+                          {projectLanguages(active).map((id) => (
+                            <Button
+                              key={id}
+                              mode="ghost"
+                              fontSize={1}
+                              text={`Stop ${titleOf(id)}`}
+                              disabled={running}
+                              onClick={() => {
+                                setStopTarget(id)
+                                setShowMore(false)
+                              }}
+                            />
+                          ))}
+                        </Flex>
+                      </Stack>
+                    ) : null}
                     <Stack space={3}>
                       <Text size={1} muted>
                         Starts over with a new TextUnited project, for example to change who
