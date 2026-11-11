@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2 – 2026-11-11
+
+- Fix: the link between a document and its translations (`translation.metadata`, documentLevel)
+  was created with a dotted id, which Sanity treats as private. A website reading without a
+  token could not see it, so its language switcher sent visitors to a page that does not exist.
+  New links get a plain id, as the Studio creates them. Links made by 0.1.0 and 0.1.1 can be
+  recreated under a plain id (same content) and the dotted ones deleted.
+
 ## 0.1.1 – 2026-11-11
 
 - Fix: a new translation lost what is not text. A blog post translated into a new language

@@ -1,6 +1,6 @@
 {
   "name": "@textunited/sanity-plugin",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Translate Sanity content with TextUnited: Studio plugin and server handler in one package",
   "license": "MIT",
   "author": {

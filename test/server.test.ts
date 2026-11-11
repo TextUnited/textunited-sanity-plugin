@@ -147,6 +147,8 @@ describe('translation request: documentLevel post', () => {
 
     const metadata = [...store.documents.values()].find((doc) => doc._type === 'translation.metadata')!
     expect((metadata.translations as Array<{_key: string}>).map((entry) => entry._key)).toEqual(['en', 'de'])
+    // an id with a dot is private: a website reading without a token would not see the link
+    expect(String(metadata._id)).not.toContain('.')
   })
 })
 

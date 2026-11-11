@@ -225,7 +225,9 @@ export function writeTargetsMutations(args: {
   if (!existing) {
     mutations.push({
       create: {
-        _id: `translation.metadata.${args.newId()}`,
+        // A plain id, like the Studio uses: an id with a dot is private, so a website reading
+        // without a token would not see the link and its language switcher would break.
+        _id: args.newId(),
         _type: 'translation.metadata',
         schemaTypes: [type],
         translations: [sourceRef, ...newRefs],
