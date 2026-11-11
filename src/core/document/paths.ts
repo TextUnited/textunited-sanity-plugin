@@ -10,6 +10,27 @@ export function cloneValue<T>(value: T): T {
   return structuredClone(value)
 }
 
+/**
+ * A copy of a source value for a translation: everything is kept (images, files, references,
+ * blocks without text) except canonical URLs, which name the source-language page and would
+ * tell search engines that the translation is a duplicate of it.
+ */
+export function cloneForTranslation<T>(value: T): T {
+  const copy = structuredClone(value)
+  const strip = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(strip)
+    } else if (isPlainObject(node)) {
+      for (const key of Object.keys(node)) {
+        if (/canonical/i.test(key)) delete node[key]
+        else strip(node[key])
+      }
+    }
+  }
+  strip(copy)
+  return copy
+}
+
 /** Builds the path step for one array item: its `_key` when present, else its index. */
 export function arrayItemSegment(item: unknown, index: number): PathSegment {
   return isPlainObject(item) && typeof item._key === 'string' ? {_key: item._key} : index
@@ -85,9 +106,13 @@ export function setAtPath(
         return
       }
       if (current[segment] === undefined || current[segment] === null) {
-        // Start missing fields empty: copying them from the source would bring along sibling
-        // values in the source language, which would then look like existing translations.
-        current[segment] = emptyContainer(nextSource, path[depth + 1])
+        // Copy a missing field from the source, so its parts that are not text (an image's
+        // asset, a file, blocks without text) are kept. Texts copied along stay equal to the
+        // source, which counts as not translated, and are replaced by their translations.
+        current[segment] =
+          nextSource !== undefined && nextSource !== null
+            ? cloneForTranslation(nextSource)
+            : emptyContainer(nextSource, path[depth + 1])
       }
       current = current[segment]
     } else {

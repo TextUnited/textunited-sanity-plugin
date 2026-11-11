@@ -1,7 +1,7 @@
 import type {TranslationState} from '../plan'
 import type {TranslationUnit} from './extract'
 import {getIntlItem} from './intl'
-import {cloneValue, getAtPath, isPlainObject, setAtPath, type PlainObject} from './paths'
+import {cloneForTranslation, cloneValue, getAtPath, isPlainObject, setAtPath, type PlainObject} from './paths'
 import {
   applyBlockTranslation,
   decodeHtmlEntities,
@@ -84,7 +84,9 @@ function writeValue(
     item = {
       _key: language,
       ...(isPlainObject(sourceItem) && typeof sourceItem._type === 'string' ? {_type: sourceItem._type} : {}),
-      value: unit.kind === 'text' ? '' : [],
+      // Rich text starts as a copy of the source, so images and blocks without text are kept;
+      // translated blocks replace their originals.
+      value: unit.kind === 'text' ? '' : Array.isArray(sourceItem?.value) ? cloneForTranslation(sourceItem.value) : [],
     }
     intlArray.push(item)
   }

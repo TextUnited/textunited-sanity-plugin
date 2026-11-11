@@ -1,5 +1,5 @@
 import type {DocumentTypeConfig} from '../core/config'
-import {cloneValue, isPlainObject, type PlainObject} from '../core/document/paths'
+import {cloneForTranslation, cloneValue, isPlainObject, type PlainObject} from '../core/document/paths'
 import {slugify} from '../core/document/slug'
 import type {TranslationTargets} from '../core/document/target'
 import {getBaseDocumentId} from '../core/ids'
@@ -136,8 +136,10 @@ export function createMissingTranslationDocuments(args: {
   const languageField = args.typeConfig.languageField ?? 'language'
   for (const language of args.languages) {
     if (args.targets.documents[language]) continue
-    const copy = withoutSystemFields(args.source)
-    for (const field of args.typeConfig.fields ?? []) delete copy[field]
+    // A full copy of the source: images, files, references and blocks without text stay as they
+    // are, and the translations replace the texts. A text still equal to the source counts as
+    // not translated, so nothing in the source language passes for a translation.
+    const copy = cloneForTranslation(withoutSystemFields(args.source))
     delete copy.slug
     copy._id = `drafts.${args.newId()}`
     copy[languageField] = language

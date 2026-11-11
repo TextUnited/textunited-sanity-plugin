@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1 – 2026-11-11
+
+- Fix: a new translation lost what is not text. A blog post translated into a new language
+  kept only the alt text of its main image (no file), which broke the translated page; rich
+  text in a new language lost its blocks without text (images, code, tables). New
+  translations now start as a copy of the source, with the texts replaced by their
+  translations; canonical URLs are not copied, so the translation does not point search
+  engines to the source page.
+
 ## 0.1.0 – 2026-11-10
 
 First release.
