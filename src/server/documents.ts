@@ -162,6 +162,76 @@ function translationReference(language: string, documentId: string, type: string
   }
 }
 
+/** Text of a localized string field (an internationalized array) in one language. */
+function localizedText(field: unknown, language: string): string {
+  if (!Array.isArray(field)) return ''
+  const item = field.find((entry) => isPlainObject(entry) && entry._key === language)
+  return isPlainObject(item) && typeof item.value === 'string' ? item.value.trim() : ''
+}
+
+/** Slug from a page title; a trailing " | Brand" part is left out. */
+function slugFromTitle(title: string): string {
+  const separator = title.lastIndexOf(' | ')
+  const main = separator > 0 ? title.slice(0, separator) : title
+  return slugify(main)
+}
+
+/**
+ * A fieldLevel document whose `slug` is a list with one slug per language (items like
+ * `{_key, language?, value: {_type: 'slug', current}}`) gets a slug for each language that has a
+ * translated title but no slug yet, made from that title. Existing slugs are never changed.
+ * Returns whether a slug was added.
+ */
+export function addMissingLocalizedSlugs(
+  document: PlainObject,
+  sourceLanguage: string,
+  newId: () => string,
+): boolean {
+  const slugs = document.slug
+  if (!Array.isArray(slugs) || !Array.isArray(document.title)) return false
+  const isSlugEntry = (entry: unknown): entry is PlainObject =>
+    isPlainObject(entry) && isPlainObject(entry.value) && ('current' in entry.value || entry.value._type === 'slug')
+  if (slugs.length > 0 && !slugs.every(isSlugEntry)) return false
+  const languageOf = (entry: PlainObject) => (typeof entry.language === 'string' ? entry.language : entry._key)
+  const template = slugs.find((entry) => isSlugEntry(entry) && languageOf(entry) === sourceLanguage) as
+    | PlainObject
+    | undefined
+  if (!template) return false
+  const sourceSlug = isPlainObject(template.value) ? String(template.value.current ?? '') : ''
+
+  let added = false
+  for (const item of document.title) {
+    if (!isPlainObject(item) || typeof item._key !== 'string' || item._key === sourceLanguage) continue
+    const language = item._key
+    const title = localizedText(document.title, language)
+    if (!title) continue
+    const existing = slugs.find((entry) => isSlugEntry(entry) && languageOf(entry) === language) as
+      | PlainObject
+      | undefined
+    const current = existing && isPlainObject(existing.value) ? existing.value.current : undefined
+    if (typeof current === 'string' && current !== '') continue
+
+    // Titles in scripts without Latin letters give no slug; the source slug marked with the language stands in.
+    const slug = slugFromTitle(title) || (sourceSlug ? `${sourceSlug}-${language}` : '')
+    if (!slug) continue
+    const value = {_type: 'slug', current: slug}
+    if (existing) {
+      existing.value = value
+    } else {
+      const keyIsLanguage = template._key === sourceLanguage
+      const taken = new Set(slugs.map((entry) => (isPlainObject(entry) ? entry._key : undefined)))
+      slugs.push({
+        ...cloneValue(template),
+        _key: keyIsLanguage && !taken.has(language) ? language : newId(),
+        ...('language' in template ? {language} : {}),
+        value,
+      })
+    }
+    added = true
+  }
+  return added
+}
+
 /** Mutations that save the changed translations as drafts. */
 export function writeTargetsMutations(args: {
   loaded: LoadedTargets
@@ -189,8 +259,12 @@ export function writeTargetsMutations(args: {
   }
 
   if (args.targets.model === 'fieldLevel') {
-    const fields = args.changedFields.get('')
-    if (fields?.size) saveDraft(args.targets.document, fields, false)
+    let fields = args.changedFields.get('')
+    if (!fields?.size) return mutations
+    if (addMissingLocalizedSlugs(args.targets.document, args.sourceLanguage, args.newId)) {
+      fields = new Set([...fields, 'slug'])
+    }
+    saveDraft(args.targets.document, fields, false)
     return mutations
   }
 

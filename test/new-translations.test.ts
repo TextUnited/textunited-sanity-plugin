@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest'
 
 import type {TranslationConfig} from '../src/core/config'
 import type {PlainObject} from '../src/core/document/paths'
+import {addMissingLocalizedSlugs} from '../src/server/documents'
 import {createTextUnitedRequestHandler} from '../src/server/index'
 import {createFakeTextUnited, MemoryStore} from './fakes'
 import {config, makePage, makePost} from './fixtures'
@@ -88,5 +89,52 @@ describe('a new translation keeps what is not text', () => {
     expect(french.value.map((block: any) => block._key)).toEqual(['b1', 'b2', 'code1'])
     expect(french.value[2]).toEqual({_key: 'code1', _type: 'customCode', code: 'npm install'})
     expect(french.value[0].children[0].text).toBe('fr:Plain paragraph.')
+  })
+})
+
+describe('a translated page gets a slug in its language', () => {
+  it('adds the slug from the translated title when the page is translated', async () => {
+    const t = setup([{...makePage(), _id: 'page1'}], 'page1')
+    expect((await t.request(['fr'])).status).toBe('done')
+
+    const page = (t.store.documents.get('drafts.page1') ?? t.store.documents.get('page1')) as any
+    expect(page.slug).toEqual([
+      {_key: 'en', value: {current: 'enterprise'}},
+      {_key: 'de', value: {_type: 'slug', current: 'sprachschicht'}},
+      {_key: 'fr', value: {_type: 'slug', current: 'fr-enterprise-language-layer'}},
+    ])
+  })
+
+  it('keeps the shape of the slug list, leaves existing slugs and drops the " | Brand" part', () => {
+    const page: Record<string, any> = {
+      title: [
+        {_key: 'en', value: 'Enterprise language layer | TextUnited'},
+        {_key: 'pl', value: 'Warstwa językowa przedsiębiorstwa | TextUnited'},
+        {_key: 'de', value: 'Sprachschicht | TextUnited'},
+        {_key: 'zh', value: '企业语言层 | TextUnited'},
+        {_key: 'fr', value: ''},
+      ],
+      slug: [
+        {_key: 'k1', _type: 'object', language: 'en', value: {_type: 'slug', current: 'enterprise-language-layer'}},
+        {_key: 'k2', _type: 'object', language: 'de', value: {_type: 'slug', current: 'sprachschicht-alt'}},
+      ],
+    }
+    let id = 0
+    expect(addMissingLocalizedSlugs(page, 'en', () => `new${++id}`)).toBe(true)
+    expect(page.slug).toEqual([
+      {_key: 'k1', _type: 'object', language: 'en', value: {_type: 'slug', current: 'enterprise-language-layer'}},
+      {_key: 'k2', _type: 'object', language: 'de', value: {_type: 'slug', current: 'sprachschicht-alt'}},
+      {_key: 'new1', _type: 'object', language: 'pl', value: {_type: 'slug', current: 'warstwa-jezykowa-przedsiebiorstwa'}},
+      {_key: 'new2', _type: 'object', language: 'zh', value: {_type: 'slug', current: 'enterprise-language-layer-zh'}},
+    ])
+    // nothing more to add
+    expect(addMissingLocalizedSlugs(page, 'en', () => 'x')).toBe(false)
+  })
+
+  it('leaves documents without a per-language slug list alone', () => {
+    const single: Record<string, any> = {title: [{_key: 'en', value: 'A'}, {_key: 'pl', value: 'B'}], slug: {_type: 'slug', current: 'a'}}
+    expect(addMissingLocalizedSlugs(single, 'en', () => 'x')).toBe(false)
+    const none: Record<string, any> = {title: [{_key: 'en', value: 'A'}, {_key: 'pl', value: 'B'}]}
+    expect(addMissingLocalizedSlugs(none, 'en', () => 'x')).toBe(false)
   })
 })
