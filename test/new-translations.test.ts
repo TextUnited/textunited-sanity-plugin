@@ -131,6 +131,16 @@ describe('a translated page gets a slug in its language', () => {
     expect(addMissingLocalizedSlugs(page, 'en', () => 'x')).toBe(false)
   })
 
+  it('leaves the homepage without slugs: it lives at the language root', () => {
+    const home: Record<string, any> = {
+      isHomepage: true,
+      title: [{_key: 'en', value: 'Home'}, {_key: 'pl', value: 'Strona główna'}],
+      slug: [{_key: 'en', language: 'en', value: {_type: 'slug', current: 'home'}}],
+    }
+    expect(addMissingLocalizedSlugs(home, 'en', () => 'x')).toBe(false)
+    expect(home.slug).toHaveLength(1)
+  })
+
   it('leaves documents without a per-language slug list alone', () => {
     const single: Record<string, any> = {title: [{_key: 'en', value: 'A'}, {_key: 'pl', value: 'B'}], slug: {_type: 'slug', current: 'a'}}
     expect(addMissingLocalizedSlugs(single, 'en', () => 'x')).toBe(false)

@@ -1,12 +1,15 @@
 # Changelog
 
-## 0.1.3 – 2026-11-13
+## 0.1.4 – 2026-11-13
+
+(0.1.3 was tagged but never published; 0.1.4 replaces it.)
 
 - Fix: a translated page (fieldLevel) got no slug in its language, so the translation had no URL
   of its own. When `slug` is a list with one slug per language (`{_key, language?, value: slug}`),
   each language with a translated title and no slug now gets one, made from that title without a
   trailing " | Brand" part. Titles without Latin letters get the source slug plus the language
-  code. Existing slugs are never changed.
+  code. Existing slugs are never changed. A document marked `isHomepage: true` gets no slugs: it
+  lives at the language root and a slug would give it a second address.
 
 ## 0.1.2 – 2026-11-11
 

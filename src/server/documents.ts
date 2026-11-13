@@ -188,6 +188,8 @@ export function addMissingLocalizedSlugs(
   newId: () => string,
 ): boolean {
   const slugs = document.slug
+  // The homepage lives at the language root (/pl, /de); a slug would give it a second address.
+  if (document.isHomepage === true) return false
   if (!Array.isArray(slugs) || !Array.isArray(document.title)) return false
   const isSlugEntry = (entry: unknown): entry is PlainObject =>
     isPlainObject(entry) && isPlainObject(entry.value) && ('current' in entry.value || entry.value._type === 'slug')
