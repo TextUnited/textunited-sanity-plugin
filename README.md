@@ -74,6 +74,8 @@ outsourced and in-house projects.
   translation as task `content`; each later request sends only its new and changed texts as one
   new task `update-<UTC date>-<time>-<random>`, and nothing in the project is replaced. The state
   remembers the task each text was last sent in, and translations are read only from that task.
+  Projects are created with `continuousProject: true`, so finishing translation and review does
+  not close them and later tasks keep them in progress; they are closed only by hand.
 
 Tried against the TextUnited production API (November 2026): new project, appended changes with
 formatted text, a language added as a new project, stop and resume, a blog post, reviewed

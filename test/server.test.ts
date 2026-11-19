@@ -62,6 +62,8 @@ describe('translation request: fieldLevel page', () => {
       taskId: 'sections.s1',
       sourceLanguageCode: 'en-us',
       referenceNumber: 'page1',
+      // later changes go to the same project, so finishing its tasks must not close it
+      continuousProject: true,
       targetLanguages: [expect.objectContaining({targetLanguageCode: 'de-de', serviceTranslation: true})],
     })
     expect(String(post.body!.eventUrl)).toMatch(

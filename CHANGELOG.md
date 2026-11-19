@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.5 – 2026-11-19
+
+- New TextUnited projects are created with `continuousProject: true`. Finishing translation and
+  review no longer closes the project, so it stays in progress when later changes are added as new
+  tasks; it is closed only by hand. The setting applies only when a project is created: projects
+  made by earlier versions keep the old behaviour.
+
 ## 0.1.4 – 2026-11-13
 
 (0.1.3 was tagged but never published; 0.1.4 replaces it.)

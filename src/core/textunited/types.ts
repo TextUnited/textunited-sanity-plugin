@@ -55,6 +55,11 @@ export type CreateProjectRequest = {
   targetLanguages: ProjectTargetLanguage[]
   segments: ProjectSegment[]
   instantTranslation?: boolean
+  /**
+   * Finishing translation or review does not close the project; it is closed only by hand.
+   * Can be set only when the project is created; TextUnited's default is false.
+   */
+  continuousProject?: boolean
   eventUrl?: string
   referenceNumber?: string
   customField1?: string

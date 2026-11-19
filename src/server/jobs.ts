@@ -480,6 +480,9 @@ async function sendToProject(args: {
         })),
         segments,
         instantTranslation: true,
+        // A document's project lives as long as the document: later changes are added to it as
+        // new tasks, so finishing the current ones must not close it.
+        continuousProject: true,
         eventUrl,
         referenceNumber: baseId,
       })
