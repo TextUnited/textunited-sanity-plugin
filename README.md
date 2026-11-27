@@ -19,9 +19,9 @@ Published on npm as `@textunited/sanity-plugin` (first release 0.1.0). Changes a
 Done:
 - package layout, build (ESM + CJS + types), tests
 - TextUnited Segments API client (personal access token or company id + API key)
-- stable identifiers: one TextUnited project per Sanity document, one task per part of the
-  document (each page-builder section, each rich-text field, all short fields together),
-  segment ids derived from the path to the text
+- stable identifiers link a Sanity document to its TextUnited projects and derive segment ids
+  from the path to each text. A document starts with one project; languages added later are
+  placed in separate projects
 - extracting translatable values for field-level (internationalized arrays) and
   document-level localization, including Portable Text with marks and long-text chunks
 - modes `missing`, `changed` and `all`, deciding which tasks to send
@@ -30,9 +30,10 @@ Done:
 
 - translation requests on the server (`POST {basePath}/jobs`): the Studio creates a
   `textunited.translationRequest` document and sends its id (allowed Studio origins only), or a
-  signed Sanity webhook does; the server creates the TextUnited project once, then replaces only
-  the changed tasks, writes the instant machine translation to drafts, and keeps the state in a
-  private `textunited.state.<document id>` document
+  signed Sanity webhook does; the server creates a TextUnited project for the requested languages
+  and sends new and changed text. By default, later changes are appended as new tasks; a
+  configured compatibility mode replaces tasks instead. The server writes instant machine
+  translations to drafts and keeps state in a private `textunited.state.<document id>` document
 - documentLevel: new translations are created as drafts with a slug from the translated title
   and linked in the translation metadata
 - a translation whose source changed is replaced; one edited by hand is kept otherwise
